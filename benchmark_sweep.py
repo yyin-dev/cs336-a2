@@ -32,7 +32,7 @@ class BenchmarkSweep:
                 {"d_model": 2560, "d_ff": 10240, "num_layers": 32, "num_heads": 32},
             ],
             "hyperparameters": {
-                "context_length": [128, 256, 512, 1024, 2048],
+                "context_length": [128, 256, 512],
                 "batch_size": [4],
             },
             "benchmark_args": {
