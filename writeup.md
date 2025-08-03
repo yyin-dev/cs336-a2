@@ -97,3 +97,62 @@ Time ratio:
 * Softmax range: 122.885μs, about 6.1% of the attention calculation.
 
 The FLOP of softmax should be negligible compared to attention caluation, but the time ratio is not!
+
+## Problem(mixed_precision_accumulation)
+
+See `precision.py`.
+
+```python
+import torch
+
+# 1. Always use f32
+s = torch.tensor(0, dtype=torch.float32)
+for i in range(1000):
+    s += torch.tensor(0.01, dtype=torch.float32)
+print(s)  # 10.0001
+
+# 2. Always use f16
+s = torch.tensor(0, dtype=torch.float16)
+for i in range(1000):
+    s += torch.tensor(0.01, dtype=torch.float16)
+print(s)  # 9.9531
+
+# 3. Accumulate results in f32, intermediate in f16
+s = torch.tensor(0, dtype=torch.float32)
+for i in range(1000):
+    s += torch.tensor(0.01, dtype=torch.float16)
+print(s)  # 10.0021
+
+# 4. Accumulate results in f32, intermediate in f16. (Same as 3)
+s = torch.tensor(0, dtype=torch.float32)
+for i in range(1000):
+    x = torch.tensor(0.01, dtype=torch.float16)
+    s += x.type(torch.float32)
+print(s)  # 10.0021
+
+```
+
+## Problem (benchmarking_mixed_precision)
+
+(a) With autocasting,
+
+* model parameters are still in float32. 
+* The output of the feed-forward layer is float16
+* The output of the layer norm is **float32**. 
+* The model's outputs are in float16
+* the loss is in float16
+* The gradients are in float32
+
+(b) For each input tensor, LayerNorm computes the tensor-level (not batch level) mean and variance, and then normalize each input through scaling the shifting. The output tensor has mean of 0 and variance of 1.
+
+The normalization bit can be sensitive to mixed precison. The normalization is basically doing $$\frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}}$$, where both $$x - \mu$$ and $$\sigma$$ can be small numbers. Also, $$\epsilon$$ is a small constant for numerical stability, but float16 might not have enough precision for it.
+
+Float16 has more precision bits but fewer exponent bits, so it has higher precision but narrower range. Bfloat16 has less precision bits but more exponent bits, so it has lower precision but wider range.
+
+Bfloat is better at representing small values, so maybe it's less necessary to remain in float32?
+
+(c) See data in `data/e2e_benchmark/forward_backward_and_optimizer` and `data/e2e_benchmark/forward_backward_and_optimizer_mixed_precision`
+
+For small runs, mixed precision is even slower, probably because of overhead from mixed precision. Example: GPT-2 small w/ context length of 128, 0.068 -> 0.073.
+
+For larger runs, mixed precision is faster. Example: GPT-2 XL w/ context length of 256, 1.09 -> 0.44.

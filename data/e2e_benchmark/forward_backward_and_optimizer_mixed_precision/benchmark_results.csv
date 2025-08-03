@@ -1,0 +1,103 @@
+d_model,d_ff,num_layers,num_heads,context_length,batch_size,mean_time,std_time,cv,status,nsys_profiled,error
+768,3072,12,12,128,4,0.0774,0.0008,0.0103359173126615,success,False,
+768,3072,12,12,256,4,0.0751,0.0007,0.009320905459387484,success,False,
+768,3072,12,12,512,4,0.0955,0.0577,0.6041884816753926,success,False,
+1024,4096,24,16,128,4,0.1621,0.0024,0.014805675508945095,success,False,
+1024,4096,24,16,256,4,0.1604,0.0003,0.0018703241895261845,success,False,
+1024,4096,24,16,512,4,0.1947,0.0097,0.049820236260914225,success,False,
+1280,5120,36,20,128,4,0.278,0.004,0.014388489208633093,success,False,
+1280,5120,36,20,256,4,0.279,0.0008,0.002867383512544803,success,False,
+1280,5120,36,20,512,4,0.3579,0.0024,0.006705783738474433,success,False,
+1600,6400,48,25,128,4,0.4392,0.0015,0.0034153005464480878,success,False,
+1600,6400,48,25,256,4,,,,failed,False,"Command failed: Traceback (most recent call last):
+  File ""/workspace/a2/benchmark.py"", line 227, in <module>
+    main()
+  File ""/workspace/a2/benchmark.py"", line 207, in main
+    mean, std = benchmark(
+                ^^^^^^^^^^
+  File ""/workspace/a2/benchmark.py"", line 121, in benchmark
+    run()
+  File ""/workspace/a2/benchmark.py"", line 114, in run
+    loss.backward()
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/_tensor.py"", line 626, in backward
+    torch.autograd.backward(
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/autograd/__init__.py"", line 347, in backward
+    _engine_run_backward(
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/autograd/graph.py"", line 823, in _engine_run_backward
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 62.00 MiB. GPU 0 has a total capacity of 38.52 GiB of which 47.69 MiB is free. Process 4049360 has 38.45 GiB memory in use. Of the allocated memory 34.15 GiB is allocated by PyTorch, and 3.80 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+"
+1600,6400,48,25,512,4,,,,failed,False,"Command failed: Traceback (most recent call last):
+  File ""/workspace/a2/benchmark.py"", line 227, in <module>
+    main()
+  File ""/workspace/a2/benchmark.py"", line 207, in main
+    mean, std = benchmark(
+                ^^^^^^^^^^
+  File ""/workspace/a2/benchmark.py"", line 121, in benchmark
+    run()
+  File ""/workspace/a2/benchmark.py"", line 117, in run
+    optimizer.step()
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/optim/optimizer.py"", line 493, in wrapper
+    out = func(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/cs336-basics/cs336_basics/optimizer.py"", line 74, in step
+    m_t = beta_1 * prev_m_t + ((1 - beta_1) * grad)
+                               ~~~~~~~~~~~~~^~~~~~
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 62.00 MiB. GPU 0 has a total capacity of 38.52 GiB of which 53.69 MiB is free. Process 4050503 has 38.44 GiB memory in use. Of the allocated memory 34.05 GiB is allocated by PyTorch, and 3.89 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+"
+2560,10240,32,32,128,4,,,,failed,False,"Command failed: Traceback (most recent call last):
+  File ""/workspace/a2/benchmark.py"", line 227, in <module>
+    main()
+  File ""/workspace/a2/benchmark.py"", line 207, in main
+    mean, std = benchmark(
+                ^^^^^^^^^^
+  File ""/workspace/a2/benchmark.py"", line 121, in benchmark
+    run()
+  File ""/workspace/a2/benchmark.py"", line 117, in run
+    optimizer.step()
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/optim/optimizer.py"", line 493, in wrapper
+    out = func(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/cs336-basics/cs336_basics/optimizer.py"", line 78, in step
+    p.data -= alpha_t * m_t / (torch.sqrt(v_t) + eps)
+                               ~~~~~~~~~~~~~~~~^~~~~
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 100.00 MiB. GPU 0 has a total capacity of 38.52 GiB of which 15.69 MiB is free. Process 4051226 has 38.48 GiB memory in use. Of the allocated memory 37.10 GiB is allocated by PyTorch, and 895.64 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+"
+2560,10240,32,32,256,4,,,,failed,False,"Command failed: Traceback (most recent call last):
+  File ""/workspace/a2/benchmark.py"", line 227, in <module>
+    main()
+  File ""/workspace/a2/benchmark.py"", line 207, in main
+    mean, std = benchmark(
+                ^^^^^^^^^^
+  File ""/workspace/a2/benchmark.py"", line 121, in benchmark
+    run()
+  File ""/workspace/a2/benchmark.py"", line 117, in run
+    optimizer.step()
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/optim/optimizer.py"", line 493, in wrapper
+    out = func(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/cs336-basics/cs336_basics/optimizer.py"", line 74, in step
+    m_t = beta_1 * prev_m_t + ((1 - beta_1) * grad)
+                               ~~~~~~~~~~~~~^~~~~~
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 100.00 MiB. GPU 0 has a total capacity of 38.52 GiB of which 51.69 MiB is free. Process 4052012 has 38.45 GiB memory in use. Of the allocated memory 36.43 GiB is allocated by PyTorch, and 1.51 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+"
+2560,10240,32,32,512,4,,,,failed,False,"Command failed: Traceback (most recent call last):
+  File ""/workspace/a2/benchmark.py"", line 227, in <module>
+    main()
+  File ""/workspace/a2/benchmark.py"", line 207, in main
+    mean, std = benchmark(
+                ^^^^^^^^^^
+  File ""/workspace/a2/benchmark.py"", line 121, in benchmark
+    run()
+  File ""/workspace/a2/benchmark.py"", line 114, in run
+    loss.backward()
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/_tensor.py"", line 626, in backward
+    torch.autograd.backward(
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/autograd/__init__.py"", line 347, in backward
+    _engine_run_backward(
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/autograd/graph.py"", line 823, in _engine_run_backward
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 128.00 MiB. GPU 0 has a total capacity of 38.52 GiB of which 125.69 MiB is free. Process 4052913 has 38.37 GiB memory in use. Of the allocated memory 37.38 GiB is allocated by PyTorch, and 500.59 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+"
