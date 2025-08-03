@@ -51,7 +51,7 @@ class BenchmarkSweep:
                 "output_dir": f"data/nsys_profiles/{mode}",
             },
             "output": {
-                "output_dir": f"data/e2e_benchmarks/{mode}",
+                "output_dir": f"data/e2e_benchmark/{mode}",
                 "csv_file": "benchmark_results.csv",
                 "latex_file": "benchmark_results.tex",
                 "markdown_file": "benchmark_results.md",

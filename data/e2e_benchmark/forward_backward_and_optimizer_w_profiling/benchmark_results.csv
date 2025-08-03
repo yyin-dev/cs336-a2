@@ -1,0 +1,155 @@
+d_model,d_ff,num_layers,num_heads,context_length,batch_size,mean_time,std_time,cv,status,nsys_profiled,nsys_output_file,error
+768,3072,12,12,128,4,0.1006,0.0011,0.010934393638170975,success,True,data/nsys_profiles/forward_backward_and_optimizer/d_model_768_layers_12_heads_12_batch_4_ctx_128.nsys-rep,
+768,3072,12,12,256,4,0.0994,0.0001,0.001006036217303823,success,True,data/nsys_profiles/forward_backward_and_optimizer/d_model_768_layers_12_heads_12_batch_4_ctx_256.nsys-rep,
+768,3072,12,12,512,4,0.1563,0.0002,0.0012795905310300705,success,True,data/nsys_profiles/forward_backward_and_optimizer/d_model_768_layers_12_heads_12_batch_4_ctx_512.nsys-rep,
+1024,4096,24,16,128,4,0.1905,0.001,0.005249343832020997,success,True,data/nsys_profiles/forward_backward_and_optimizer/d_model_1024_layers_24_heads_16_batch_4_ctx_128.nsys-rep,
+1024,4096,24,16,256,4,0.2476,0.0002,0.0008077544426494346,success,True,data/nsys_profiles/forward_backward_and_optimizer/d_model_1024_layers_24_heads_16_batch_4_ctx_256.nsys-rep,
+1024,4096,24,16,512,4,0.4654,0.0002,0.00042973785990545773,success,True,data/nsys_profiles/forward_backward_and_optimizer/d_model_1024_layers_24_heads_16_batch_4_ctx_512.nsys-rep,
+1280,5120,36,20,128,4,0.3633,0.0059,0.016240022020368842,success,True,data/nsys_profiles/forward_backward_and_optimizer/d_model_1280_layers_36_heads_20_batch_4_ctx_128.nsys-rep,
+1280,5120,36,20,256,4,0.5447,0.0038,0.0069763172388470724,success,True,data/nsys_profiles/forward_backward_and_optimizer/d_model_1280_layers_36_heads_20_batch_4_ctx_256.nsys-rep,
+1280,5120,36,20,512,4,1.2229,0.3846,0.31449832365688113,success,True,data/nsys_profiles/forward_backward_and_optimizer/d_model_1280_layers_36_heads_20_batch_4_ctx_512.nsys-rep,
+1600,6400,48,25,128,4,0.6705,0.0103,0.015361670395227442,success,True,data/nsys_profiles/forward_backward_and_optimizer/d_model_1600_layers_48_heads_25_batch_4_ctx_128.nsys-rep,
+1600,6400,48,25,256,4,1.1787,0.1324,0.11232714006956815,success,True,data/nsys_profiles/forward_backward_and_optimizer/d_model_1600_layers_48_heads_25_batch_4_ctx_256.nsys-rep,
+1600,6400,48,25,512,4,,,,failed,True,data/nsys_profiles/forward_backward_and_optimizer/d_model_1600_layers_48_heads_25_batch_4_ctx_512.nsys-rep,"Command failed: Traceback (most recent call last):
+  File ""/workspace/a2/benchmark.py"", line 207, in <module>
+    main()
+  File ""/workspace/a2/benchmark.py"", line 188, in main
+    mean, std = benchmark(
+                ^^^^^^^^^^
+  File ""/workspace/a2/benchmark.py"", line 108, in benchmark
+    run()
+  File ""/workspace/a2/benchmark.py"", line 95, in run
+    output = model.forward(input)
+             ^^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/cs336-basics/cs336_basics/annotated_model.py"", line 275, in forward
+    x = layer(x)
+        ^^^^^^^^
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py"", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py"", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/.uv/python_install/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/cs336-basics/cs336_basics/annotated_model.py"", line 417, in forward
+    x_ffn = self.ffn(self.ln2(attn_sublayer_output))
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py"", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py"", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/cs336-basics/cs336_basics/annotated_model.py"", line 430, in forward
+    return self.w2(silu(self.w1(x)) * self.w3(x))
+                                      ^^^^^^^^^^
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py"", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py"", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/.uv/python_install/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/cs336-basics/cs336_basics/annotated_model.py"", line 49, in forward
+    return einsum(x, self.weight, ""... d_in, d_out d_in -> ... d_out"")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/einops/einops.py"", line 916, in einsum
+    return get_backend(tensors[0]).einsum(pattern, *tensors)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/einops/_backends.py"", line 288, in einsum
+    return self.torch.einsum(pattern, *x)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/functional.py"", line 407, in einsum
+    return _VF.einsum(equation, operands)  # type: ignore[attr-defined]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 50.00 MiB. GPU 0 has a total capacity of 38.52 GiB of which 45.69 MiB is free. Process 3972580 has 38.45 GiB memory in use. Of the allocated memory 35.94 GiB is allocated by PyTorch, and 1.99 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+"
+2560,10240,32,32,128,4,,,,failed,True,data/nsys_profiles/forward_backward_and_optimizer/d_model_2560_layers_32_heads_32_batch_4_ctx_128.nsys-rep,"Command failed: Traceback (most recent call last):
+  File ""/workspace/a2/benchmark.py"", line 207, in <module>
+    main()
+  File ""/workspace/a2/benchmark.py"", line 188, in main
+    mean, std = benchmark(
+                ^^^^^^^^^^
+  File ""/workspace/a2/benchmark.py"", line 108, in benchmark
+    run()
+  File ""/workspace/a2/benchmark.py"", line 104, in run
+    optimizer.step()
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/optim/optimizer.py"", line 493, in wrapper
+    out = func(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/cs336-basics/cs336_basics/optimizer.py"", line 78, in step
+    p.data -= alpha_t * m_t / (torch.sqrt(v_t) + eps)
+                               ~~~~~~~~~~~~~~~~^~~~~
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 100.00 MiB. GPU 0 has a total capacity of 38.52 GiB of which 9.69 MiB is free. Process 3973739 has 38.49 GiB memory in use. Of the allocated memory 37.65 GiB is allocated by PyTorch, and 319.89 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+"
+2560,10240,32,32,256,4,,,,failed,True,data/nsys_profiles/forward_backward_and_optimizer/d_model_2560_layers_32_heads_32_batch_4_ctx_256.nsys-rep,"Command failed: Traceback (most recent call last):
+  File ""/workspace/a2/benchmark.py"", line 207, in <module>
+    main()
+  File ""/workspace/a2/benchmark.py"", line 188, in main
+    mean, std = benchmark(
+                ^^^^^^^^^^
+  File ""/workspace/a2/benchmark.py"", line 108, in benchmark
+    run()
+  File ""/workspace/a2/benchmark.py"", line 104, in run
+    optimizer.step()
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/optim/optimizer.py"", line 493, in wrapper
+    out = func(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/cs336-basics/cs336_basics/optimizer.py"", line 78, in step
+    p.data -= alpha_t * m_t / (torch.sqrt(v_t) + eps)
+                               ~~~~~~~~~~~~~~~~^~~~~
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 100.00 MiB. GPU 0 has a total capacity of 38.52 GiB of which 41.69 MiB is free. Process 3975712 has 38.46 GiB memory in use. Of the allocated memory 36.30 GiB is allocated by PyTorch, and 1.63 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+"
+2560,10240,32,32,512,4,,,,failed,True,data/nsys_profiles/forward_backward_and_optimizer/d_model_2560_layers_32_heads_32_batch_4_ctx_512.nsys-rep,"Command failed: Traceback (most recent call last):
+  File ""/workspace/a2/benchmark.py"", line 207, in <module>
+    main()
+  File ""/workspace/a2/benchmark.py"", line 188, in main
+    mean, std = benchmark(
+                ^^^^^^^^^^
+  File ""/workspace/a2/benchmark.py"", line 108, in benchmark
+    run()
+  File ""/workspace/a2/benchmark.py"", line 95, in run
+    output = model.forward(input)
+             ^^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/cs336-basics/cs336_basics/annotated_model.py"", line 275, in forward
+    x = layer(x)
+        ^^^^^^^^
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py"", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py"", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/.uv/python_install/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/cs336-basics/cs336_basics/annotated_model.py"", line 413, in forward
+    x_attn = self.attn(self.ln1(x))
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py"", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py"", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/.uv/python_install/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/cs336-basics/cs336_basics/annotated_model.py"", line 572, in forward
+    attn_output = scaled_dot_product_attention(K=K, Q=Q, V=V, mask=causal_mask)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/.uv/python_install/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/contextlib.py"", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File ""/workspace/a2/cs336-basics/cs336_basics/annotated_model.py"", line 469, in scaled_dot_product_attention
+    attention_weights = softmax(
+                        ^^^^^^^^
+  File ""/workspace/a2/cs336-basics/cs336_basics/nn_utils.py"", line 6, in softmax
+    exponentiated_rescaled_input = torch.exp(rescaled_input)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 128.00 MiB. GPU 0 has a total capacity of 38.52 GiB of which 21.69 MiB is free. Process 3977310 has 38.47 GiB memory in use. Of the allocated memory 37.47 GiB is allocated by PyTorch, and 497.46 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+"
