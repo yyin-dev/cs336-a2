@@ -70,25 +70,38 @@ def benchmark(
     if not run_backward:
 
         def run():
-            output = model.forward(input).mean()
+            with nvtx.range("forward"):
+                output = model.forward(input)
 
     else:
         if not run_optimizer:
 
             def run():
-                output = model.forward(input).mean()
-                output.backward()
+                with nvtx.range("forward"):
+                    output = model.forward(input)
+
+                with nvtx.range("loss"):
+                    loss = cross_entropy(output, targets)
+
+                with nvtx.range("backward"):
+                    loss.backward()
 
         else:
 
             def run():
                 optimizer.zero_grad()
 
-                output = model.forward(input)
-                loss = cross_entropy(output, targets)
-                loss.backward()
+                with nvtx.range("forward"):
+                    output = model.forward(input)
 
-                optimizer.step()
+                with nvtx.range("loss"):
+                    loss = cross_entropy(output, targets)
+
+                with nvtx.range("backward"):
+                    loss.backward()
+
+                with nvtx.range("optimizer"):
+                    optimizer.step()
 
     with nvtx.range("warmup"):
         for _ in range(num_warmups):
@@ -103,6 +116,8 @@ def benchmark(
         # When nsys profiling, we run fewer trials and capture the profile
         with nvtx.range("nsys_profiling"):
             for _ in range(min(3, num_trials)):  # Limit trials for profiling
+                model.zero_grad()
+
                 start_time = timeit.default_timer()
                 run()
                 if torch.cuda.is_available():
@@ -112,6 +127,8 @@ def benchmark(
     else:
         # Normal timing runs
         for _ in range(num_trials):
+            model.zero_grad()
+
             start_time = timeit.default_timer()
             run()
             if torch.cuda.is_available():

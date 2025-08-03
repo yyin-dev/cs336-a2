@@ -24,6 +24,9 @@ class BenchmarkSweep:
 
     def get_default_config(self) -> Dict[str, Any]:
         """Get default hyperparameter configuration."""
+
+        mode = "forward_backward_and_optimizer"
+
         return {
             "model_architectures": [
                 {"d_model": 768, "d_ff": 3072, "num_layers": 12, "num_heads": 12},
@@ -40,14 +43,15 @@ class BenchmarkSweep:
                 "num_warmups": 5,
                 "num_trials": 10,
                 # "forward_only", "forward_backward", or "forward_backward_and_optimizer"
-                "benchmark_mode": "forward_backward_and_optimizer",
+                "benchmark_mode": mode,
                 "cpu": False,
             },
             "nsys_profiling": {
-                "enabled": False,
-                "output_dir": "nsys_profiles",
+                "enabled": True,
+                "output_dir": f"data/nsys_profiles/{mode}",
             },
             "output": {
+                "output_dir": f"data/e2e_benchmarks/{mode}",
                 "csv_file": "benchmark_results.csv",
                 "latex_file": "benchmark_results.tex",
                 "markdown_file": "benchmark_results.md",
@@ -248,11 +252,15 @@ class BenchmarkSweep:
             print("No results to save.")
             return
 
+        # Create output directory if it doesn't exist
+        output_dir = self.config["output"]["output_dir"]
+        os.makedirs(output_dir, exist_ok=True)
+
         # Create DataFrame
         df = pd.DataFrame(self.results)
 
         # Save to CSV
-        csv_file = self.config["output"]["csv_file"]
+        csv_file = os.path.join(output_dir, self.config["output"]["csv_file"])
         df.to_csv(csv_file, index=False)
         print(f"Results saved to {csv_file}")
 
@@ -278,14 +286,14 @@ class BenchmarkSweep:
                 table_df[col] = table_df[col].round(6)
 
         # Save to LaTeX
-        latex_file = self.config["output"]["latex_file"]
+        latex_file = os.path.join(output_dir, self.config["output"]["latex_file"])
         latex_content = table_df.to_latex(index=False, float_format="%.6f")
         with open(latex_file, "w") as f:
             f.write(latex_content)
         print(f"LaTeX table saved to {latex_file}")
 
         # Save to Markdown
-        markdown_file = self.config["output"]["markdown_file"]
+        markdown_file = os.path.join(output_dir, self.config["output"]["markdown_file"])
         markdown_content = table_df.to_markdown(index=False, floatfmt=".6f")
         with open(markdown_file, "w") as f:
             f.write(markdown_content)
