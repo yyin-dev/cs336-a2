@@ -51,6 +51,10 @@ class BenchmarkSweep:
                 "enabled": True,
                 "output_dir": f"data/nsys_profiles/{mode}",
             },
+            "memory_profiling": {
+                "enabled": False,
+                "output_dir": f"data/memory_profiles/{mode}",
+            },
             "output": {
                 "output_dir": f"data/e2e_benchmark/{mode}",
                 "csv_file": "benchmark_results.csv",
@@ -106,16 +110,39 @@ class BenchmarkSweep:
         output_dir = self.config["nsys_profiling"]["output_dir"]
         return os.path.join(output_dir, filename)
 
-    def should_profile_with_nsys(self, hyperparams: Dict[str, Any]) -> bool:
+    def generate_memory_filename(self, hyperparams: Dict[str, Any]) -> str:
+        """Generate a unique filename for memory snapshot based on hyperparameters."""
+        filename_parts = [
+            f"d_model_{hyperparams['d_model']}",
+            f"layers_{hyperparams['num_layers']}",
+            f"heads_{hyperparams['num_heads']}",
+            f"batch_{hyperparams['batch_size']}",
+            f"ctx_{hyperparams['context_length']}",
+        ]
+        filename = "_".join(filename_parts) + "_memory_snapshot.pickle"
+
+        output_dir = self.config["memory_profiling"]["output_dir"]
+        return os.path.join(output_dir, filename)
+
+    def should_profile_with_nsys(self) -> bool:
         """Determine if this combination should be profiled with nsys."""
         nsys_config = self.config["nsys_profiling"]
         return nsys_config["enabled"]
 
+    def should_profile_memory(self) -> bool:
+        """Determine if this combination should be profiled for memory."""
+        memory_config = self.config["memory_profiling"]
+        return memory_config["enabled"]
+
     def run_single_benchmark(self, hyperparams: Dict[str, Any]) -> Dict[str, Any]:
         """Run a single benchmark with given hyperparameters."""
         # Check if we should profile with nsys
-        use_nsys = self.should_profile_with_nsys(hyperparams)
+        use_nsys = self.should_profile_with_nsys()
         nsys_output_file = None
+
+        # Check if we should profile memory
+        use_memory_profiling = self.should_profile_memory()
+        memory_snapshot_file = None
 
         if use_nsys:
             # Create output directory if it doesn't exist
@@ -134,11 +161,17 @@ class BenchmarkSweep:
                 "--python-backtrace=cuda",
                 "python",
                 "benchmark.py",
-                "--profile",
+                "--profile_compute",
             ]
         else:
             # Regular benchmark command
             cmd = ["python", "benchmark.py"]
+
+        if use_memory_profiling:
+            # Create output directory if it doesn't exist
+            memory_output_dir = self.config["memory_profiling"]["output_dir"]
+            os.makedirs(memory_output_dir, exist_ok=True)
+            memory_snapshot_file = self.generate_memory_filename(hyperparams)
 
         # Add hyperparameters
         for param, value in hyperparams.items():
@@ -152,6 +185,12 @@ class BenchmarkSweep:
                     cmd.append(f"--{arg}")
             else:
                 cmd.extend([f"--{arg}", str(value)])
+
+        # Add memory profiling flag and snapshot file if memory profiling is enabled
+        if use_memory_profiling:
+            cmd.append("--profile_memory")
+            if memory_snapshot_file:
+                cmd.extend(["--memory_snapshot_file", memory_snapshot_file])
 
         print(f"Running: {' '.join(cmd)}")
 
@@ -175,10 +214,14 @@ class BenchmarkSweep:
                     "cv": std / mean,  # coefficient of variation
                     "status": "success",
                     "nsys_profiled": use_nsys,
+                    "memory_profiled": use_memory_profiling,
                 }
 
                 if use_nsys and nsys_output_file:
                     result["nsys_output_file"] = nsys_output_file
+
+                if use_memory_profiling and memory_snapshot_file:
+                    result["memory_snapshot_file"] = memory_snapshot_file
 
                 return result
             else:
@@ -190,9 +233,12 @@ class BenchmarkSweep:
                     "status": "failed",
                     "error": "Could not parse output",
                     "nsys_profiled": use_nsys,
+                    "memory_profiled": use_memory_profiling,
                 }
                 if use_nsys and nsys_output_file:
                     result["nsys_output_file"] = nsys_output_file
+                if use_memory_profiling and memory_snapshot_file:
+                    result["memory_snapshot_file"] = memory_snapshot_file
                 return result
 
         except subprocess.CalledProcessError as e:
@@ -204,9 +250,12 @@ class BenchmarkSweep:
                 "status": "failed",
                 "error": f"Command failed: {e.stderr}",
                 "nsys_profiled": use_nsys,
+                "memory_profiled": use_memory_profiling,
             }
             if use_nsys and nsys_output_file:
                 result["nsys_output_file"] = nsys_output_file
+            if use_memory_profiling and memory_snapshot_file:
+                result["memory_snapshot_file"] = memory_snapshot_file
             return result
 
         except Exception as e:
@@ -218,9 +267,12 @@ class BenchmarkSweep:
                 "status": "failed",
                 "error": str(e),
                 "nsys_profiled": use_nsys,
+                "memory_profiled": use_memory_profiling,
             }
             if use_nsys and nsys_output_file:
                 result["nsys_output_file"] = nsys_output_file
+            if use_memory_profiling and memory_snapshot_file:
+                result["memory_snapshot_file"] = memory_snapshot_file
             return result
 
     def run_sweep(self):
@@ -237,12 +289,14 @@ class BenchmarkSweep:
             # Print progress
             if result["status"] == "success":
                 nsys_info = " [nsys]" if result.get("nsys_profiled", False) else ""
+                memory_info = " [memory]" if result.get("memory_profiled", False) else ""
                 print(
-                    f"✓ Mean: {result['mean_time']:.4f}s, Std: {result['std_time']:.4f}s{nsys_info}"
+                    f"✓ Mean: {result['mean_time']:.4f}s, Std: {result['std_time']:.4f}s{nsys_info}{memory_info}"
                 )
             else:
                 nsys_info = " [nsys]" if result.get("nsys_profiled", False) else ""
-                print(f"✗ Failed: {result['error']}{nsys_info}")
+                memory_info = " [memory]" if result.get("memory_profiled", False) else ""
+                print(f"✗ Failed: {result['error']}{nsys_info}{memory_info}")
 
     def save_results(self):
         """Save results to various formats."""
@@ -269,11 +323,11 @@ class BenchmarkSweep:
             print("No successful results to generate tables.")
             return
 
-        # Select columns for the table (exclude error, status, and nsys file path columns)
+        # Select columns for the table (exclude error, status, and file path columns)
         table_columns = [
             col
             for col in successful_df.columns
-            if col not in ["status", "error", "nsys_output_file"]
+            if col not in ["status", "error", "nsys_output_file", "memory_snapshot_file"]
         ]
         table_df = successful_df[table_columns].copy()
 
@@ -313,6 +367,17 @@ class BenchmarkSweep:
                 for result in successful_nsys:
                     if "nsys_output_file" in result:
                         print(f"  - {result['nsys_output_file']}")
+
+        # Summary of memory profiling
+        memory_results = [r for r in self.results if r.get("memory_profiled", False)]
+        if memory_results:
+            print(f"memory profiles generated: {len(memory_results)}")
+            successful_memory = [r for r in memory_results if r["status"] == "success"]
+            if successful_memory:
+                print("memory snapshot files:")
+                for result in successful_memory:
+                    if "memory_snapshot_file" in result:
+                        print(f"  - {result['memory_snapshot_file']}")
 
 
 def main():

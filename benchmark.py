@@ -36,10 +36,12 @@ def benchmark(
     num_warmups: int,
     num_trials: int,
     forward_only: bool,
-    profile: bool,
+    profile_compute: bool,
     mixed_precision: bool,
+    profile_memory: bool,
+    memory_snapshot_file: str = "memory_snapshot.pickle",
 ):
-    TransformerClass = AnnotatedTransformer if profile else Transformer
+    TransformerClass = AnnotatedTransformer if profile_compute else Transformer
 
     model = TransformerClass(
         vocab_size=10000,
@@ -107,9 +109,12 @@ def benchmark(
         if torch.cuda.is_available():
             torch.cuda.synchronize()
 
+    if profile_memory:
+        torch.cuda.memory._record_memory_history(max_entries=1000000)
+
     times: list[float] = []
 
-    if profile:
+    if profile_compute:
         # When nsys profiling, we run fewer trials and capture the profile
         with nvtx.range("nsys_profiling"):
             for _ in range(min(3, num_trials)):  # Limit trials for profiling
@@ -135,6 +140,11 @@ def benchmark(
 
     mean_time = statistics.mean(times)
     std = statistics.stdev(times) if len(times) > 1 else 0.0
+
+    if profile_memory:
+        torch.cuda.memory._dump_snapshot(memory_snapshot_file)
+        torch.cuda.memory._record_memory_history(enabled=None)
+
     return mean_time, std
 
 
@@ -152,8 +162,10 @@ def main():
     parser.add_argument("--num_warmups", type=int, default=5)
     parser.add_argument("--num_trials", type=int, default=10)
     parser.add_argument("--forward_only", action="store_true")
-    parser.add_argument("--profile", action="store_true")
+    parser.add_argument("--profile_compute", action="store_true")
     parser.add_argument("--mixed_precision", action="store_true")
+    parser.add_argument("--profile_memory", action="store_true")
+    parser.add_argument("--memory_snapshot_file", type=str, default="memory_snapshot.pickle")
 
     args = parser.parse_args()
     print(args)
@@ -163,8 +175,11 @@ def main():
     else:
         assert torch.cuda.is_available()
 
-    if args.profile:
+    if args.profile_compute:
         print(f"Note: nsys profiling enabled")
+
+    if args.profile_memory:
+        print(f"Note: PyTorch memory profiling enabled")
 
     if args.forward_only:
         print(f"forward only")
@@ -186,8 +201,10 @@ def main():
         args.num_warmups,
         args.num_trials,
         args.forward_only,
-        args.profile,
+        args.profile_compute,
         args.mixed_precision,
+        args.profile_memory,
+        args.memory_snapshot_file,
     )
     print(f"Mean: {mean:.4f}")
     print(f"Std: {std:.4f}")
