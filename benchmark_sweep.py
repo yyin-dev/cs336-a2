@@ -25,7 +25,8 @@ class BenchmarkSweep:
     def get_default_config(self) -> Dict[str, Any]:
         """Get default hyperparameter configuration."""
 
-        mode = "forward_backward_and_optimizer"
+        forward_only = False
+        mode = "forward_only" if forward_only else "full_trainig_step"
 
         return {
             "model_architectures": [
@@ -42,8 +43,7 @@ class BenchmarkSweep:
             "benchmark_args": {
                 "num_warmups": 5,
                 "num_trials": 10,
-                # "forward_only", "forward_backward", or "forward_backward_and_optimizer"
-                "benchmark_mode": mode,
+                "forward_only": forward_only,
                 "cpu": False,
                 "mixed_precision": False,
             },
@@ -147,10 +147,7 @@ class BenchmarkSweep:
         # Add benchmark arguments
         benchmark_args = self.config["benchmark_args"]
         for arg, value in benchmark_args.items():
-            if arg == "benchmark_mode":
-                # Handle the special benchmark_mode argument
-                cmd.append(f"--{value}")
-            elif isinstance(value, bool):
+            if isinstance(value, bool):
                 if value:
                     cmd.append(f"--{arg}")
             else:

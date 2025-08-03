@@ -35,8 +35,7 @@ def benchmark(
     d_ff: int,
     num_warmups: int,
     num_trials: int,
-    run_backward: bool,
-    run_optimizer: bool,
+    forward_only: bool,
     profile: bool,
     mixed_precision: bool,
 ):
@@ -76,7 +75,7 @@ def benchmark(
         else nullcontext()
     )
 
-    if not run_backward:
+    if forward_only:
 
         def run():
             with optional_cast_context_manager:
@@ -84,37 +83,22 @@ def benchmark(
                     output = model.forward(input)
 
     else:
-        if not run_optimizer:
 
-            def run():
+        def run():
+            with optional_cast_context_manager:
+                optimizer.zero_grad()
 
-                with optional_cast_context_manager:
-                    with nvtx.range("forward"):
-                        output = model.forward(input)
+                with nvtx.range("forward"):
+                    output = model.forward(input)
 
-                    with nvtx.range("loss"):
-                        loss = cross_entropy(output, targets)
+                with nvtx.range("loss"):
+                    loss = cross_entropy(output, targets)
 
-                    with nvtx.range("backward"):
-                        loss.backward()
+                with nvtx.range("backward"):
+                    loss.backward()
 
-        else:
-
-            def run():
-                with optional_cast_context_manager:
-                    optimizer.zero_grad()
-
-                    with nvtx.range("forward"):
-                        output = model.forward(input)
-
-                    with nvtx.range("loss"):
-                        loss = cross_entropy(output, targets)
-
-                    with nvtx.range("backward"):
-                        loss.backward()
-
-                    with nvtx.range("optimizer"):
-                        optimizer.step()
+                with nvtx.range("optimizer"):
+                    optimizer.step()
 
     with nvtx.range("warmup"):
         for _ in range(num_warmups):
@@ -168,8 +152,6 @@ def main():
     parser.add_argument("--num_warmups", type=int, default=5)
     parser.add_argument("--num_trials", type=int, default=10)
     parser.add_argument("--forward_only", action="store_true")
-    parser.add_argument("--forward_backward", action="store_true")
-    parser.add_argument("--forward_backward_and_optimizer", action="store_true")
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--mixed_precision", action="store_true")
 
@@ -186,18 +168,8 @@ def main():
 
     if args.forward_only:
         print(f"forward only")
-        run_backward = False
-        run_optimizer = False
-    elif args.forward_backward:
-        print(f"forward backward")
-        run_backward = True
-        run_optimizer = False
-    elif args.forward_backward_and_optimizer:
-        print(f"forward backward and optimizer")
-        run_backward = True
-        run_optimizer = True
     else:
-        raise ValueError("No option selected")
+        print("full training step (forward + backward + optimizer)")
 
     if args.mixed_precision:
         print("Mixed precision")
@@ -213,8 +185,7 @@ def main():
         args.d_ff,
         args.num_warmups,
         args.num_trials,
-        run_backward,
-        run_optimizer,
+        args.forward_only,
         args.profile,
         args.mixed_precision,
     )
