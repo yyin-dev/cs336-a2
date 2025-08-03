@@ -89,12 +89,34 @@ For one complete training step (forward + backward + optimizer step),
 
 Matmul kernels sum to around 68%. So fraction of time spent on matmul is lower.
 
+| Phase     | Dominant Ops              | Notes                             |
+| --------- | ------------------------- | --------------------------------- |
+| Forward   | matmuls                   | Efficient fused kernels           |
+| Backward  | matmuls + elementwise ops |                                   |
+| Optimizer | mostly elementwise ops    | Low in FLOPs, but high in runtime |
+
+Forward is dominated by matmul. 
+
+Backward pass consists of more element-wise ops. Even though gradients of matmuls are still matmuls, gradients of activations (e.g. ReLU, GeLU, softmax) are element-wise, gradients of residual connections are element-wise adds, etc.
+
+Optimizer step usually involves very little matmuls and is dominated by element-wise ops. Take Adam for example, Given parameter θ, gradient g, moments m, v: 
+
+```
+m ← β₁ * m + (1 - β₁) * g      # 1st moment (mean)
+v ← β₂ * v + (1 - β₂) * g²     # 2nd moment (variance)
+θ ← θ - α * m / (sqrt(v) + ε)  # parameter update
+```
+
+All of these are element-wise ops.
+
+GPT states matmul's time fraction should be 80%-90% for inference, and 50%-70% for full training steps.
+
 (b) Looking at one `CausalMultiHeadSelfAttention` NVTX range:![image-20250803150116427](https://raw.githubusercontent.com/yyin-dev/image_cloud/main/Picsee/image-20250803150116427_W9GkHh.jpeg)
 
 Time ratio:
 
-* Enture range: 2.001ms
-* Softmax range: 122.885μs, about 6.1% of the attention calculation.
+* Entire range: 2.001ms
+* Softmax range: 122.885μs, about 6.1% of the attention calculation. 
 
 The FLOP of softmax should be negligible compared to attention caluation, but the time ratio is not!
 
@@ -156,3 +178,55 @@ Bfloat is better at representing small values, so maybe it's less necessary to r
 For small runs, mixed precision is even slower, probably because of overhead from mixed precision. Example: GPT-2 small w/ context length of 128, 0.068 -> 0.073.
 
 For larger runs, mixed precision is faster. Example: GPT-2 XL w/ context length of 256, 1.09 -> 0.44.
+
+## Problem (memory_profilng)
+
+My A100 has only 40G of memory, so I profiled forward pass and backpass and optimizer step of the GPT-XL model. For forward pass, I profiled contxt length of 128, 256, and 512. For backward pass, I profiled 128 and 256. See `data/memory_profiles`.
+
+(a) For context length of 256:
+
+Forward only: 
+
+![image-20250803170837588](https://raw.githubusercontent.com/yyin-dev/image_cloud/main/Picsee/image-20250803170837588_mFKweK.jpeg)
+
+Full training step:
+
+![image-20250803171305699](https://raw.githubusercontent.com/yyin-dev/image_cloud/main/Picsee/image-20250803171305699_myUtVk.jpeg)
+
+Observations:
+
+* Based on the shape of forward-only, we can tell in the full training image, the plateau after each spike is the backward phase.
+
+(b) Peak memory usage:
+
+* Forward-only:
+  * 128: 13G
+  * 256: 20G
+  * 512: 37G
+* Full training step:
+  * 128: 32G
+  * 256: 37G
+
+(c) Mixed-precision memory usage:
+
+* forward-only:
+  * 128: around 15G
+  * 256: around 19G
+  * 512: around 31G
+* full training step:
+  * 128: 36G
+  * 512: 37G
+
+Sometimes, mixed-precision reduce memory usage, because tensors are cast to lower precision, there's therefore smaller activation, etc. It can save a significant amount of RAM, e.g. forward-only context length 512, 37G -> 31G.
+
+However, you will notice that mixed-precision doesn't always reduce memory usage (e.g. full training step, context length 128, 32G -> 36G). Those can happen when precision mismatch triggers implicit casts which are temporary copies and increases memory footprint, or when there's autograd overhead caused by mixed-precision.
+
+GPT's answer: https://chatgpt.com/share/688fd6f9-ab54-8013-83a4-7a85e6f4f5cf 
+
+(d)  For GPT-XL, context length 256, batch size of 4, d_model = 1600, that's 256 * 4 * 1600 * 8 =13,107,200  bytes, so that's 12.5MB.
+
+For 2.7B, context length 256, batch size of 4, d_model = 2560, that's 256 * 4 * 2560 * 8 =  2,0971,520 bytes, so that's 20MB.
+
+(e) When reducing details to a small number, the largest allocation is of size 100MB (104,857,600 bytes). The stacktrace looks like the allocation is done in softmax in `nn_utils.py`, which invoked `torch.exp`.
+
+The 100MB is probably because PyTorch allocates memory in fixed sizes. 
