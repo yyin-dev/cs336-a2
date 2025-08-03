@@ -4,7 +4,10 @@ import torch
 def softmax(x, dim=-1):
     rescaled_input = x - torch.max(x, dim=dim, keepdim=True)[0]
     exponentiated_rescaled_input = torch.exp(rescaled_input)
-    return exponentiated_rescaled_input / torch.sum(exponentiated_rescaled_input, dim=dim, keepdim=True)
+    return exponentiated_rescaled_input / torch.sum(
+        exponentiated_rescaled_input, dim=dim, keepdim=True
+    )
+
 
 def log_softmax(x, dim=-1):
     x_max = torch.max(x, dim=dim, keepdim=True)[0]
@@ -14,7 +17,9 @@ def log_softmax(x, dim=-1):
 
 def cross_entropy(inputs, targets):
     negative_log_softmax_logits = -log_softmax(inputs)
-    return torch.mean(torch.gather(negative_log_softmax_logits, -1, targets.unsqueeze(-1)))
+    return torch.mean(
+        torch.gather(negative_log_softmax_logits, -1, targets.unsqueeze(-1))
+    )
 
 
 def clip_gradient(parameters, max_norm):

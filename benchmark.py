@@ -4,9 +4,9 @@ import argparse
 import torch
 import numpy as np
 import random
-import time
 import timeit
 import statistics
+import torch.cuda.nvtx as nvtx
 
 # Seed for determinism
 seed = 42
