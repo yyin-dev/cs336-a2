@@ -1,4 +1,5 @@
-from cs336_basics.model import BasicsTransformerLM
+from cs336_basics.model import BasicsTransformerLM as Transformer
+from cs336_basics.annotated_model import BasicsTransformerLM as AnnotatedTransformer
 import argparse
 
 import torch
@@ -32,8 +33,11 @@ def benchmark(
     num_warmups: int,
     num_trials: int,
     forward_only: bool,
+    profile: bool,
 ):
-    model = BasicsTransformerLM(
+    TransformerClass = AnnotatedTransformer if profile else Transformer
+
+    model = TransformerClass(
         vocab_size=10000,
         context_length=context_length,
         d_model=d_model,
@@ -70,16 +74,29 @@ def benchmark(
             torch.cuda.synchronize()
 
     times: list[float] = []
-    for _ in range(num_trials):
-        start_time = timeit.default_timer()
-        run()
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-        end_time = timeit.default_timer()
-        times.append((end_time - start_time))
+
+    if profile:
+        # When nsys profiling, we run fewer trials and capture the profile
+        with nvtx.range("nsys_profiling"):
+            for _ in range(min(3, num_trials)):  # Limit trials for profiling
+                start_time = timeit.default_timer()
+                run()
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                end_time = timeit.default_timer()
+                times.append((end_time - start_time))
+    else:
+        # Normal timing runs
+        for _ in range(num_trials):
+            start_time = timeit.default_timer()
+            run()
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            end_time = timeit.default_timer()
+            times.append((end_time - start_time))
 
     mean_time = statistics.mean(times)
-    std = statistics.stdev(times)
+    std = statistics.stdev(times) if len(times) > 1 else 0.0
     return mean_time, std
 
 
@@ -97,6 +114,7 @@ def main():
     parser.add_argument("--num_warmups", type=int, default=5)
     parser.add_argument("--num_trials", type=int, default=10)
     parser.add_argument("--forward_only", action="store_true")
+    parser.add_argument("--profile", action="store_true")
 
     args = parser.parse_args()
     print(args)
@@ -105,6 +123,9 @@ def main():
         print("Warning: Benchmarking on CPU")
     else:
         assert torch.cuda.is_available()
+
+    if args.profile:
+        print(f"Note: nsys profiling enabled")
 
     mean, std = benchmark(
         args.batch_size,
@@ -116,6 +137,7 @@ def main():
         args.num_warmups,
         args.num_trials,
         args.forward_only,
+        args.profile,
     )
     print(f"Mean: {mean:.4f}")
     print(f"Std: {std:.4f}")

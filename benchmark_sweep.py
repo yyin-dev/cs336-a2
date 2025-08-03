@@ -11,6 +11,7 @@ import pandas as pd
 import itertools
 from typing import Dict, List, Any, Optional
 import argparse
+import os
 
 
 class BenchmarkSweep:
@@ -40,6 +41,10 @@ class BenchmarkSweep:
                 "num_trials": 10,
                 "forward_only": False,
                 "cpu": False,
+            },
+            "nsys_profiling": {
+                "enabled": False,
+                "output_dir": "nsys_profiles",
             },
             "output": {
                 "csv_file": "benchmark_results.csv",
@@ -81,10 +86,53 @@ class BenchmarkSweep:
 
         return combinations
 
+    def generate_nsys_filename(self, hyperparams: Dict[str, Any]) -> str:
+        """Generate a unique filename for nsys output based on hyperparameters."""
+        filename_parts = [
+            f"d_model_{hyperparams['d_model']}",
+            f"layers_{hyperparams['num_layers']}",
+            f"heads_{hyperparams['num_heads']}",
+            f"batch_{hyperparams['batch_size']}",
+            f"ctx_{hyperparams['context_length']}",
+        ]
+        filename = "_".join(filename_parts) + ".nsys-rep"
+
+        output_dir = self.config["nsys_profiling"]["output_dir"]
+        return os.path.join(output_dir, filename)
+
+    def should_profile_with_nsys(self, hyperparams: Dict[str, Any]) -> bool:
+        """Determine if this combination should be profiled with nsys."""
+        nsys_config = self.config["nsys_profiling"]
+        return nsys_config["enabled"]
+
     def run_single_benchmark(self, hyperparams: Dict[str, Any]) -> Dict[str, Any]:
         """Run a single benchmark with given hyperparameters."""
-        # Build command
-        cmd = ["python", "benchmark.py"]
+        # Check if we should profile with nsys
+        use_nsys = self.should_profile_with_nsys(hyperparams)
+        nsys_output_file = None
+
+        if use_nsys:
+            # Create output directory if it doesn't exist
+            output_dir = self.config["nsys_profiling"]["output_dir"]
+            os.makedirs(output_dir, exist_ok=True)
+            nsys_output_file = self.generate_nsys_filename(hyperparams)
+
+            # Build nsys command
+            cmd = [
+                "nsys",
+                "profile",
+                "-o",
+                nsys_output_file.replace(
+                    ".nsys-rep", ""
+                ),  # nsys adds .nsys-rep automatically
+                "python",
+                "benchmark.py",
+                "--profile",
+                "--python-backtrace=cuda",
+            ]
+        else:
+            # Regular benchmark command
+            cmd = ["python", "benchmark.py"]
 
         # Add hyperparameters
         for param, value in hyperparams.items():
@@ -114,42 +162,60 @@ class BenchmarkSweep:
                 mean = float(mean_line[0].split(":")[1].strip())
                 std = float(std_line[0].split(":")[1].strip())
 
-                return {
+                result = {
                     **hyperparams,
                     "mean_time": mean,
                     "std_time": std,
                     "cv": std / mean,  # coefficient of variation
                     "status": "success",
+                    "nsys_profiled": use_nsys,
                 }
+
+                if use_nsys and nsys_output_file:
+                    result["nsys_output_file"] = nsys_output_file
+
+                return result
             else:
-                return {
+                result = {
                     **hyperparams,
                     "mean_time": None,
                     "std_time": None,
                     "cv": None,
                     "status": "failed",
                     "error": "Could not parse output",
+                    "nsys_profiled": use_nsys,
                 }
+                if use_nsys and nsys_output_file:
+                    result["nsys_output_file"] = nsys_output_file
+                return result
 
         except subprocess.CalledProcessError as e:
-            return {
+            result = {
                 **hyperparams,
                 "mean_time": None,
                 "std_time": None,
                 "cv": None,
                 "status": "failed",
                 "error": f"Command failed: {e.stderr}",
+                "nsys_profiled": use_nsys,
             }
+            if use_nsys and nsys_output_file:
+                result["nsys_output_file"] = nsys_output_file
+            return result
 
         except Exception as e:
-            return {
+            result = {
                 **hyperparams,
                 "mean_time": None,
                 "std_time": None,
                 "cv": None,
                 "status": "failed",
                 "error": str(e),
+                "nsys_profiled": use_nsys,
             }
+            if use_nsys and nsys_output_file:
+                result["nsys_output_file"] = nsys_output_file
+            return result
 
     def run_sweep(self):
         """Run the complete hyperparameter sweep."""
@@ -164,11 +230,13 @@ class BenchmarkSweep:
 
             # Print progress
             if result["status"] == "success":
+                nsys_info = " [nsys]" if result.get("nsys_profiled", False) else ""
                 print(
-                    f"✓ Mean: {result['mean_time']:.4f}s, Std: {result['std_time']:.4f}s"
+                    f"✓ Mean: {result['mean_time']:.4f}s, Std: {result['std_time']:.4f}s{nsys_info}"
                 )
             else:
-                print(f"✗ Failed: {result['error']}")
+                nsys_info = " [nsys]" if result.get("nsys_profiled", False) else ""
+                print(f"✗ Failed: {result['error']}{nsys_info}")
 
     def save_results(self):
         """Save results to various formats."""
@@ -191,9 +259,11 @@ class BenchmarkSweep:
             print("No successful results to generate tables.")
             return
 
-        # Select columns for the table (exclude error and status columns)
+        # Select columns for the table (exclude error, status, and nsys file path columns)
         table_columns = [
-            col for col in successful_df.columns if col not in ["status", "error"]
+            col
+            for col in successful_df.columns
+            if col not in ["status", "error", "nsys_output_file"]
         ]
         table_df = successful_df[table_columns].copy()
 
@@ -222,6 +292,17 @@ class BenchmarkSweep:
         print(f"Total combinations: {len(self.results)}")
         print(f"Successful: {len(successful_df)}")
         print(f"Failed: {len(self.results) - len(successful_df)}")
+
+        # Summary of nsys profiling
+        nsys_results = [r for r in self.results if r.get("nsys_profiled", False)]
+        if nsys_results:
+            print(f"nsys profiles generated: {len(nsys_results)}")
+            successful_nsys = [r for r in nsys_results if r["status"] == "success"]
+            if successful_nsys:
+                print("nsys profile files:")
+                for result in successful_nsys:
+                    if "nsys_output_file" in result:
+                        print(f"  - {result['nsys_output_file']}")
 
 
 def main():
