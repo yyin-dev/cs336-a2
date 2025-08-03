@@ -3,6 +3,7 @@ from cs336_basics.nn_utils import cross_entropy
 from cs336_basics.optimizer import AdamW
 from cs336_basics.annotated_model import BasicsTransformerLM as AnnotatedTransformer
 import argparse
+from contextlib import nullcontext
 
 import torch
 import numpy as np
@@ -37,6 +38,7 @@ def benchmark(
     run_backward: bool,
     run_optimizer: bool,
     profile: bool,
+    mixed_precision: bool,
 ):
     TransformerClass = AnnotatedTransformer if profile else Transformer
 
@@ -66,42 +68,53 @@ def benchmark(
     )
 
     optimizer = AdamW(model.parameters())
+    dtype = torch.bfloat16
+
+    optional_cast_context_manager = (
+        torch.autocast(device_type=get_device(), dtype=dtype)
+        if mixed_precision
+        else nullcontext()
+    )
 
     if not run_backward:
 
         def run():
-            with nvtx.range("forward"):
-                output = model.forward(input)
+            with optional_cast_context_manager:
+                with nvtx.range("forward"):
+                    output = model.forward(input)
 
     else:
         if not run_optimizer:
 
             def run():
-                with nvtx.range("forward"):
-                    output = model.forward(input)
 
-                with nvtx.range("loss"):
-                    loss = cross_entropy(output, targets)
+                with optional_cast_context_manager:
+                    with nvtx.range("forward"):
+                        output = model.forward(input)
 
-                with nvtx.range("backward"):
-                    loss.backward()
+                    with nvtx.range("loss"):
+                        loss = cross_entropy(output, targets)
+
+                    with nvtx.range("backward"):
+                        loss.backward()
 
         else:
 
             def run():
-                optimizer.zero_grad()
+                with optional_cast_context_manager:
+                    optimizer.zero_grad()
 
-                with nvtx.range("forward"):
-                    output = model.forward(input)
+                    with nvtx.range("forward"):
+                        output = model.forward(input)
 
-                with nvtx.range("loss"):
-                    loss = cross_entropy(output, targets)
+                    with nvtx.range("loss"):
+                        loss = cross_entropy(output, targets)
 
-                with nvtx.range("backward"):
-                    loss.backward()
+                    with nvtx.range("backward"):
+                        loss.backward()
 
-                with nvtx.range("optimizer"):
-                    optimizer.step()
+                    with nvtx.range("optimizer"):
+                        optimizer.step()
 
     with nvtx.range("warmup"):
         for _ in range(num_warmups):
@@ -158,6 +171,7 @@ def main():
     parser.add_argument("--forward_backward", action="store_true")
     parser.add_argument("--forward_backward_and_optimizer", action="store_true")
     parser.add_argument("--profile", action="store_true")
+    parser.add_argument("--mixed_precision", action="store_true")
 
     args = parser.parse_args()
     print(args)
@@ -185,6 +199,11 @@ def main():
     else:
         raise ValueError("No option selected")
 
+    if args.mixed_precision:
+        print("Mixed precision")
+    else:
+        print("Full precision")
+
     mean, std = benchmark(
         args.batch_size,
         args.num_layers,
@@ -197,6 +216,7 @@ def main():
         run_backward,
         run_optimizer,
         args.profile,
+        args.mixed_precision,
     )
     print(f"Mean: {mean:.4f}")
     print(f"Std: {std:.4f}")

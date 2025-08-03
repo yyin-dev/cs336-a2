@@ -45,6 +45,7 @@ class BenchmarkSweep:
                 # "forward_only", "forward_backward", or "forward_backward_and_optimizer"
                 "benchmark_mode": mode,
                 "cpu": False,
+                "mixed_precision": False,
             },
             "nsys_profiling": {
                 "enabled": True,
