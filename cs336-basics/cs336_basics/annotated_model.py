@@ -1,3 +1,7 @@
+"""
+The same as model.py, but with nvtx annotation for profiling.
+"""
+
 from __future__ import annotations
 
 import functools
@@ -12,6 +16,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from jaxtyping import Float, Bool, Int
+import torch.cuda.nvtx as nvtx
 
 
 from .nn_utils import softmax
@@ -39,6 +44,7 @@ class Linear(nn.Module):
             requires_grad=True,
         )
 
+    @nvtx.range("Linear")
     def forward(self, x: Float[Tensor, " ... d_in"]) -> Float[Tensor, " ... d_out"]:
         return einsum(x, self.weight, "... d_in, d_out d_in -> ... d_out")
 
@@ -57,6 +63,7 @@ class Embedding(nn.Module):
             requires_grad=True,
         )
 
+    @nvtx.range("Embedding")
     def forward(self, token_ids: Int[Tensor, " ..."]) -> Float[Tensor, " ... d_model"]:
         return self.weight[token_ids, :]
 
@@ -89,6 +96,7 @@ class RMSNorm(nn.Module):
         self.weight = nn.Parameter(torch.ones(hidden_size, device=device))
         self.eps = eps
 
+    @nvtx.range("RMSNorm")
     def forward(self, x):
         """
         Args:
@@ -138,6 +146,7 @@ class RotaryEmbedding(nn.Module):
         cos, sin = torch.cos(freqs), torch.sin(freqs)
         return torch.stack((cos, sin))
 
+    @nvtx.range("RoPE")
     def forward(
         self, x: Float[Tensor, " ... seq d"], pos_ids: Int[Tensor, " ... seq"]
     ) -> Float[Tensor, " ... seq d"]:
@@ -388,6 +397,7 @@ class TransformerBlock(nn.Module):
         self.ln1 = RMSNorm(d_model)
         self.ln2 = RMSNorm(d_model)
 
+    @nvtx.range("TranformerBlock")
     def forward(self, x: torch.Tensor):
         """
         Args:
@@ -420,6 +430,7 @@ class SwiGLU(nn.Module):
         return self.w2(silu(self.w1(x)) * self.w3(x))
 
 
+@nvtx.range("scaled dot product attention")
 def scaled_dot_product_attention(
     Q: Float[Tensor, " ... queries d_k"],
     K: Float[Tensor, " ... keys    d_k"],
@@ -445,18 +456,24 @@ def scaled_dot_product_attention(
     """
 
     d_k = K.shape[-1]
-    attention_scores = einsum(
-        Q, K, "... query d_k, ... key d_k -> ... query key"
-    ) / math.sqrt(d_k)
 
-    if mask is not None:
-        attention_scores = torch.where(mask, attention_scores, float("-inf"))
+    with nvtx.range("attention scores"):
+        attention_scores = einsum(
+            Q, K, "... query d_k, ... key d_k -> ... query key"
+        ) / math.sqrt(d_k)
 
-    attention_weights = softmax(
-        attention_scores, dim=-1
-    )  # Softmax over the key dimension
+        if mask is not None:
+            attention_scores = torch.where(mask, attention_scores, float("-inf"))
 
-    return einsum(attention_weights, V, "... query key, ... key d_v ->  ... query d_v")
+    with nvtx.range("softmax"):
+        attention_weights = softmax(
+            attention_scores, dim=-1
+        )  # Softmax over the key dimension
+
+    with nvtx.range("matmul"):
+        return einsum(
+            attention_weights, V, "... query key, ... key d_v ->  ... query d_v"
+        )
 
 
 class CausalMultiHeadSelfAttention(nn.Module):
@@ -502,6 +519,7 @@ class CausalMultiHeadSelfAttention(nn.Module):
 
         self.positional_encoder = positional_encoder  # RoPE
 
+    @nvtx.range("CausalMultiHeadSelfAttention")
     def forward(
         self,
         x: Float[Tensor, " ... seq d_k"],
@@ -518,15 +536,18 @@ class CausalMultiHeadSelfAttention(nn.Module):
         *b, sequence_length, d_model = x.size()
         assert d_model == self.d_model
 
-        Q = self.q_proj(x)
-        K = self.k_proj(x)
-        V = self.v_proj(x)
+        with nvtx.range("Compute Q, K, V"):
+            Q = self.q_proj(x)
+            K = self.k_proj(x)
+            V = self.v_proj(x)
 
-        # Take apart each head from the embedding dimension of Q, K, V to shape (..., num_heads, seq_len, d_k).
-        Q, K, V = (
-            rearrange(X, "... seq (heads d) -> ... heads seq d", heads=self.num_heads)
-            for X in (Q, K, V)
-        )  # fmt: skip
+            # Take apart each` head from the embedding dimension of Q, K, V to shape (..., num_heads, seq_len, d_k).
+            Q, K, V = (
+                rearrange(
+                    X, "... seq (heads d) -> ... heads seq d", heads=self.num_heads
+                )
+                for X in (Q, K, V)
+            )  # fmt: skip`
 
         if token_positions is None:
             token_positions = einx.rearrange(

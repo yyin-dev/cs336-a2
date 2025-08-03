@@ -62,11 +62,12 @@ def benchmark(
             output = model.forward(input).mean()
             output.backward()
 
-    for _ in range(num_warmups):
-        run()
+    with nvtx.range("warmup"):
+        for _ in range(num_warmups):
+            run()
 
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
 
     times: list[float] = []
     for _ in range(num_trials):
