@@ -39,7 +39,8 @@ class BenchmarkSweep:
             "benchmark_args": {
                 "num_warmups": 5,
                 "num_trials": 10,
-                "forward_only": False,
+                # "forward_only", "forward_backward", or "forward_backward_and_optimizer"
+                "benchmark_mode": "forward_backward_and_optimizer",
                 "cpu": False,
             },
             "nsys_profiling": {
@@ -125,10 +126,10 @@ class BenchmarkSweep:
                 nsys_output_file.replace(
                     ".nsys-rep", ""
                 ),  # nsys adds .nsys-rep automatically
+                "--python-backtrace=cuda",
                 "python",
                 "benchmark.py",
                 "--profile",
-                "--python-backtrace=cuda",
             ]
         else:
             # Regular benchmark command
@@ -141,7 +142,10 @@ class BenchmarkSweep:
         # Add benchmark arguments
         benchmark_args = self.config["benchmark_args"]
         for arg, value in benchmark_args.items():
-            if isinstance(value, bool):
+            if arg == "benchmark_mode":
+                # Handle the special benchmark_mode argument
+                cmd.append(f"--{value}")
+            elif isinstance(value, bool):
                 if value:
                     cmd.append(f"--{arg}")
             else:

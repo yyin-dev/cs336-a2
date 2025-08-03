@@ -1,4 +1,6 @@
 from cs336_basics.model import BasicsTransformerLM as Transformer
+from cs336_basics.nn_utils import cross_entropy
+from cs336_basics.optimizer import AdamW
 from cs336_basics.annotated_model import BasicsTransformerLM as AnnotatedTransformer
 import argparse
 
@@ -32,7 +34,8 @@ def benchmark(
     d_ff: int,
     num_warmups: int,
     num_trials: int,
-    forward_only: bool,
+    run_backward: bool,
+    run_optimizer: bool,
     profile: bool,
 ):
     TransformerClass = AnnotatedTransformer if profile else Transformer
@@ -55,16 +58,37 @@ def benchmark(
         device=get_device(),
     )
 
-    if forward_only:
+    targets = torch.randint(
+        low=0,
+        high=10000,
+        size=(batch_size, context_length),
+        device=get_device(),
+    )
+
+    optimizer = AdamW(model.parameters())
+
+    if not run_backward:
 
         def run():
             output = model.forward(input).mean()
 
     else:
+        if not run_optimizer:
 
-        def run():
-            output = model.forward(input).mean()
-            output.backward()
+            def run():
+                output = model.forward(input).mean()
+                output.backward()
+
+        else:
+
+            def run():
+                optimizer.zero_grad()
+
+                output = model.forward(input)
+                loss = cross_entropy(output, targets)
+                loss.backward()
+
+                optimizer.step()
 
     with nvtx.range("warmup"):
         for _ in range(num_warmups):
@@ -114,6 +138,8 @@ def main():
     parser.add_argument("--num_warmups", type=int, default=5)
     parser.add_argument("--num_trials", type=int, default=10)
     parser.add_argument("--forward_only", action="store_true")
+    parser.add_argument("--forward_backward", action="store_true")
+    parser.add_argument("--forward_backward_and_optimizer", action="store_true")
     parser.add_argument("--profile", action="store_true")
 
     args = parser.parse_args()
@@ -127,6 +153,21 @@ def main():
     if args.profile:
         print(f"Note: nsys profiling enabled")
 
+    if args.forward_only:
+        print(f"forward only")
+        run_backward = False
+        run_optimizer = False
+    elif args.forward_backward:
+        print(f"forward backward")
+        run_backward = True
+        run_optimizer = False
+    elif args.forward_backward_and_optimizer:
+        print(f"forward backward and optimizer")
+        run_backward = True
+        run_optimizer = True
+    else:
+        raise ValueError("No option selected")
+
     mean, std = benchmark(
         args.batch_size,
         args.num_layers,
@@ -136,7 +177,8 @@ def main():
         args.d_ff,
         args.num_warmups,
         args.num_trials,
-        args.forward_only,
+        run_backward,
+        run_optimizer,
         args.profile,
     )
     print(f"Mean: {mean:.4f}")
