@@ -1,6 +1,6 @@
 ## problem(benchmarking_script)
 
-(a) `benchmark.py` and `benchmark_sweep.py`. See results in `data/e2e_benchmark`. 
+(a) `benchmark.py` and `benchmark_sweep.py`. See results in `data/e2e_benchmark`. Benchmarked on A100 with 40G RAM.
 
 (b) Backwards takes about 2x of forward time. The variability is very small. Std/mean is usually under 1%. 
 
@@ -230,3 +230,89 @@ For 2.7B, context length 256, batch size of 4, d_model = 2560, that's 256 * 4 * 
 (e) When reducing details to a small number, the largest allocation is of size 100MB (104,857,600 bytes). The stacktrace looks like the allocation is done in softmax in `nn_utils.py`, which invoked `torch.exp`.
 
 The 100MB is probably because PyTorch allocates memory in fixed sizes. 
+
+## Problem (pytorch_attention)
+
+Benchmarked on H100 with 80G RAM (100 passes).
+
+| d_model | seq_len | forward time | CUDA memory usage after forward | backward time |
+| ------: | ------: | -----------: | ------------------------------: | ------------: |
+|      16 |     256 |       0.0312 |                         68.9614 |        0.0898 |
+|      16 |    1024 |       0.0476 |                         132.594 |        0.0937 |
+|      16 |    4096 |       0.3129 |                         1118.38 |        0.6993 |
+|      16 |    8192 |       1.2175 |                         4252.75 |        2.6391 |
+|      16 |   16384 |       4.7718 |                         16761.5 |       10.3709 |
+|      32 |     256 |       0.0272 |                         69.8364 |        0.0819 |
+|      32 |    1024 |       0.0418 |                         136.094 |        0.0895 |
+|      32 |    4096 |       0.3258 |                         1132.38 |        0.7228 |
+|      32 |    8192 |       1.2485 |                         4280.75 |        2.6671 |
+|      32 |   16384 |       4.8859 |                         16817.5 |       10.4795 |
+|      64 |     256 |         0.03 |                         71.5864 |        0.0814 |
+|      64 |    1024 |       0.0429 |                         143.094 |        0.0857 |
+|      64 |    4096 |       0.3494 |                         1160.38 |         0.766 |
+|      64 |    8192 |       1.3693 |                         4336.75 |        2.9065 |
+|      64 |   16384 |       5.4185 |                         16929.5 |       11.4581 |
+|     128 |     256 |       0.0271 |                         75.0864 |         0.082 |
+|     128 |    1024 |       0.0434 |                         157.094 |        0.0941 |
+|     128 |    4096 |       0.4119 |                         1216.38 |         0.898 |
+|     128 |    8192 |       1.6008 |                         4448.75 |        3.3566 |
+|     128 |   16384 |       6.3116 |                         17153.5 |       13.2443 |
+
+When increasing seq_len from 256 to 8192 (32x), time increases for ~80x,  the memory increases for ~60x. 
+
+When increasing seq_len from 256 to 16382 (64x), time increases for ~315x, the memory increases for ~240x.
+
+Observation: Superlinear scaling. Long sequences are very expensive.
+
+## Problem (torch_compile)
+
+Benchmarked on H100 with 80G RAM.
+
+Attention benchmark 
+
+| d_model | seq_len | baseline forward | compile forward | compile w/ float32 forward | baseline backward | compile backward | compile w/ float32 backward | CUDA memory usage after forward |
+| ------: | ------: | ---------------: | --------------: | -------------------------: | ----------------: | ---------------: | --------------------------: | ------------------------------: |
+|      16 |     256 |           0.0312 |           0.036 |                     0.0176 |            0.0898 |           0.0539 |                      0.0544 |                         68.9614 |
+|      16 |    1024 |           0.0476 |          0.0418 |                     0.0213 |            0.0937 |           0.0566 |                      0.0514 |                         132.594 |
+|      16 |    4096 |           0.3129 |          0.1277 |                     0.1114 |            0.6993 |           0.2942 |                      0.2738 |                         1118.38 |
+|      16 |    8192 |           1.2175 |          0.5273 |                     0.4749 |            2.6391 |           1.0851 |                      0.9671 |                         4252.75 |
+|      16 |   16384 |           4.7718 |          1.8686 |                     1.6892 |           10.3709 |           4.2687 |                      3.8779 |                         16761.5 |
+|      32 |     256 |           0.0272 |          0.0491 |                     0.0263 |            0.0819 |           0.0561 |                      0.0517 |                         69.8364 |
+|      32 |    1024 |           0.0418 |          0.0396 |                     0.0371 |            0.0895 |           0.0558 |                      0.0576 |                         136.094 |
+|      32 |    4096 |           0.3258 |          0.1728 |                     0.1532 |            0.7228 |           0.3258 |                      0.2893 |                         1132.38 |
+|      32 |    8192 |           1.2485 |          0.6303 |                     0.5542 |            2.6671 |           1.1574 |                      1.0147 |                         4280.75 |
+|      32 |   16384 |           4.8859 |          2.1536 |                     1.8669 |           10.4795 |           4.4769 |                      3.9683 |                         16817.5 |
+|      64 |     256 |             0.03 |          0.0265 |                     0.0236 |            0.0814 |           0.0559 |                      0.0521 |                         71.5864 |
+|      64 |    1024 |           0.0429 |          0.0428 |                      0.038 |            0.0857 |           0.0582 |                      0.0586 |                         143.094 |
+|      64 |    4096 |           0.3494 |          0.1941 |                     0.1474 |             0.766 |           0.3777 |                      0.2915 |                         1160.38 |
+|      64 |    8192 |           1.3693 |          0.6771 |                     0.4756 |            2.9065 |           1.3774 |                      1.0033 |                         4336.75 |
+|      64 |   16384 |           5.4185 |          2.6819 |                     1.8678 |           11.4581 |           5.4604 |                      3.9668 |                         16929.5 |
+|     128 |     256 |           0.0271 |          0.0261 |                     0.0233 |             0.082 |           0.0568 |                      0.0515 |                         75.0864 |
+|     128 |    1024 |           0.0434 |          0.0411 |                     0.0392 |            0.0941 |           0.0676 |                      0.0616 |                         157.094 |
+|     128 |    4096 |           0.4119 |          0.2556 |                     0.1503 |             0.898 |           0.5002 |                         0.3 |                         1216.38 |
+|     128 |    8192 |           1.6008 |          0.9092 |                     0.4949 |            3.3566 |           1.8287 |                      1.0355 |                         4448.75 |
+|     128 |   16384 |           6.3116 |          3.5884 |                     1.9464 |           13.2443 |           7.2555 |                      4.0837 |                         17153.5 |
+
+We observed similar superlinear scaling for sequence length. For example, for d_model=128, when seq_len increases from 256 to 8192 (32x), time increases ~20x, RAM increases ~60x; when seq_len increases from 256 to 16382 (64x), time increases ~80x, RAM increases ~240x.  
+
+Transformer benchmark (forward + backward + optimizer)
+
+| d_model |  d_ff | num_layers | num_heads | context_length | mean_time (baseline) | mean_time (compile) | mean_time (compile w/ f32)                      |
+| ------: | ----: | ---------: | --------: | -------------: | -------------------: | ------------------: | ----------------------------------------------: |
+|     768 |  3072 |         12 |        12 |            128 |             0.073000 |            0.049800 |                                        0.052900 |
+|     768 |  3072 |         12 |        12 |            256 |             0.074300 |            0.051300 |                                        0.053500 |
+|     768 |  3072 |         12 |        12 |            512 |             0.082700 |            0.056600 |                                        0.050800 |
+|    1024 |  4096 |         24 |        16 |            128 |             0.145300 |            0.076100 |                                        0.077400 |
+|    1024 |  4096 |         24 |        16 |            256 |             0.146500 |            0.097000 |                                        0.088100 |
+|    1024 |  4096 |         24 |        16 |            512 |             0.210100 |            0.159000 |                                        0.084300 |
+|    1280 |  5120 |         36 |        20 |            128 |             0.212200 |            0.156400 |                                        0.133600 |
+|    1280 |  5120 |         36 |        20 |            256 |             0.267600 |            0.226400 |                                        0.133500 |
+|    1280 |  5120 |         36 |        20 |            512 |             0.443800 |            0.375800 |                                        0.162800 |
+|    1600 |  6400 |         48 |        25 |            128 |             0.358100 |            0.295100 |                                        0.207200 |
+|    1600 |  6400 |         48 |        25 |            256 |             0.501500 |            0.452000 |                                        0.231400 |
+|    1600 |  6400 |         48 |        25 |            512 |             0.858800 |            0.749400 |                                        0.283500 |
+|    2560 | 10240 |         32 |        32 |            128 |             0.471300 |            0.446800 |                                        0.270300 |
+|    2560 | 10240 |         32 |        32 |            256 |             0.724500 |            0.680600 |                                        0.303200 |
+|    2560 | 10240 |         32 |        32 |            512 |             1.246300 |            1.143300 |                                        0.393300 |
+
+We observed similar superlinear scaling. For example, for d_model = 2560, when context_length increases from 128 to 256 (2x), the time increases by ~1.122x; when context_length increases from 128 to 512 (4x), the time increases by 1.455x. 1.122^2 =1.259 < 1.455x. 
