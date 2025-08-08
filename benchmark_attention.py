@@ -1,6 +1,7 @@
 import argparse
 import torch.nn as nn
 import torch
+import torch._functorch.config
 import timeit
 from einops import einsum
 import math
@@ -48,15 +49,30 @@ def get_device():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--forward-only", action="store_true")
+    parser.add_argument("--compile", action="store_true")
+    parser.add_argument("--device", type=str)
 
     args = parser.parse_args()
 
-    forward_only = args.forward_only
-    print("forward only")
+    if args.device:
+        device = args.device
+    else:
+        device = get_device()
 
-    device = get_device()
     print(f"Device: {device}")
+
+    if args.compile:
+        print("Compile")
+
+        # Required when using torch.compile and backward(retain_graph=True)
+        torch._functorch.config.donated_buffer = False
+
+        if device == "mps":
+            attn_func = torch.compile(scaled_dot_product_attn, backend="aot_eager")
+        else:
+            attn_func = torch.compile(scaled_dot_product_attn)
+    else:
+        attn_func = scaled_dot_product_attn
 
     batch_size = 8
     d_models = [16, 32, 64, 128]
@@ -76,7 +92,7 @@ def main():
 
             # warmup
             for _ in range(10):
-                out = scaled_dot_product_attn(Q, K, V, mask)
+                out = attn_func(Q, K, V, mask)
                 loss = out.sum()
                 loss.backward()
 
@@ -87,7 +103,7 @@ def main():
             N = 100
             start_time_fwd = timeit.default_timer()
             for _ in range(N):
-                out = scaled_dot_product_attn(Q, K, V, mask)
+                out = attn_func(Q, K, V, mask)
 
                 if torch.cuda.is_available():
                     torch.cuda.synchronize()
@@ -103,7 +119,7 @@ def main():
                 print(f"CUDA memory usage after forward: {allocated_MB:.4f}MB")
 
             # 100 backward pass
-            out = scaled_dot_product_attn(Q, K, V, mask)
+            out = attn_func(Q, K, V, mask)
             loss = out.sum()
 
             if torch.cuda.is_available():
