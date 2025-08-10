@@ -316,3 +316,96 @@ Transformer benchmark (forward + backward + optimizer)
 |    2560 | 10240 |         32 |        32 |            512 |             1.246300 |            1.143300 |                                        0.393300 |
 
 We observed similar superlinear scaling. For example, for d_model = 2560, when context_length increases from 128 to 256 (2x), the time increases by ~1.122x; when context_length increases from 128 to 512 (4x), the time increases by 1.455x. 1.122^2 =1.259 < 1.455x. 
+
+## Problem (flash_forward)
+
+(a) I initially wrote a bug to flatten all batch dimensions, mixing attention across batches. This is wrong because 
+
+* Attention produces how one sequence (that provides Q) should attend to another sequence (that provides K, V).
+* In the case of self-attention, each batch is a distinct input sequence. E.g. batch 1: "The cat sat on the mat", batch 2 "How are you?".  Mixing the batch is meaningless (e.g. "The cat sat on the mat How are you?").
+* The softmax is computed over the sequence to attend to. Mixing batches extends the sequence in a meaningless way.
+* The batch dimension serves as a hard boundary that preserves the boundary of different input sequences.
+
+Claude found the bug for me. See Appendix for Claude's debugging process.
+
+
+
+## Appendix
+
+## Debugging non-Triton FlashAttention
+
+Claude debugging my non-Triton FlashAttention kernel implementation. Note that point 3 is wrong, that's not an actual bug. It's still impressive that Claude was able to debug in such a methodological and rigorous approach.
+
+```
+Here's a systematic breakdown of the debugging process and hypotheses I tested:
+
+    1. Initial Algorithm Correctness Check
+
+  - Hypothesis: The tiling algorithm implementation doesn't match FlashAttention-2 spec
+  - Test: Compared implementation line-by-line against the provided algorithm
+  - Result: Found minor issues (initialization, normalization) but algorithm structure
+    was correct
+
+    2. Numerical Precision Issues
+
+  - Hypothesis: Small floating-point differences causing test failure
+  - Test: Created simple test cases with known inputs, measured differences
+  - Result: ❌ Differences were massive (92.4% mismatch), not precision issues
+
+    3. Tensor Initialization Bug
+
+  - Hypothesis: Using tensor views instead of independent copies corrupts computation
+  - Test: Changed Oij = O[i * Bq : (i + 1) * Bq, :] to Oij = torch.zeros((Bq, d), 
+    device=Q.device)
+  - Result: ✅ This was a real bug - using views meant modifying final output during
+    computation
+
+    4. Device Specification Issues
+
+  - Hypothesis: Mixed CPU/GPU tensors causing computation errors
+  - Test: Added device=Q.device to all tensor creations including mij
+  - Result: ✅ Minor fix, but necessary for GPU compatibility
+
+    5. Single Tile vs Multi-Tile Testing
+
+  - Hypothesis: Multi-tile logic has bugs in tile boundary handling
+  - Test: Created step-by-step debug of first tile computation, then multi-tile cases
+  - Result: ✅ Single tile worked perfectly, multi-tile also worked for small cases
+
+    6. Dimension Scaling Analysis
+
+  - Hypothesis: Algorithm breaks at certain dimensions due to numerical instability
+  - Test: Gradually scaled from 8x16x4 to 128x128x64 dimensions
+  - Result: ❌ All dimension scales worked for single batch
+
+    7. Batch Processing Investigation (The Root Cause)
+
+  - Hypothesis: The batch dimension flattening is mixing data across batches
+  - Test: Compared single batch vs multi-batch behavior with identical per-batch data
+  - Result: ✅ CRITICAL BUG FOUND - rearrange(Q, "... d -> (...) d") was flattening ALL
+    dimensions, causing tiles to contain mixed batch data
+
+    8. Final Validation
+
+  - Test: Rewrote to process each batch independently while maintaining tiling within
+    batches
+  - Result: ✅ All tests pass, including the original failing test
+
+  Key Insights:
+
+    1. Algorithm was mathematically correct - the issue was in data organization
+    2. Batch boundaries matter - attention must be computed independently per batch
+    3. Systematic scaling testing was crucial to isolate the batch size as the breaking
+       point
+    4. Step-by-step debugging of intermediate computations revealed the exact point of
+       failure
+
+  The debugging process took a methodical approach: algorithm → precision → implementation details → data organization, ultimately finding that the core mathematical implementation was sound but the batch handling was fundamentally flawed.
+```
+
+
+
+
+
+
+

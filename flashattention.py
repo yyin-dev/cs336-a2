@@ -42,71 +42,62 @@ class FlashAttentionKernelPytorch(torch.autograd.Function):
     def forward(ctx, Q, K, V, is_causal=False):
         """
         Args
-            Q: ... m d
-            K: ... n d
-            V: ... n d
+            Q: b m d
+            K: b n d
+            V: b n d
 
         """
-        d = Q.shape[-1]
-        m = Q.shape[-2]
-        n = K.shape[-2]
-
-        Q = rearrange(Q, "... d -> (...) d")
-        K = rearrange(K, "... d -> (...) d")
-        V = rearrange(V, "... d -> (...) d")
-        Nq = Q.shape[0]
-        Nk = K.shape[0]
-
-        O = torch.zeros((Nq, d), device=Q.device)
-        L = torch.zeros((Nq,), device=Q.device)
+        B = Q.shape[0]
+        Nq = Q.shape[1]
+        Nk = K.shape[1]
+        d = Q.shape[2]
 
         Bq = 8
         Bk = 16
         assert Nq % Bq == 0
         assert Nk % Bk == 0
-
         Tq = cdiv(Nq, Bq)
         Tk = cdiv(Nk, Bk)
 
-        for i in range(Tq):
-            Qi = Q[i * Bq : (i + 1) * Bq, :]
-            Oij = O[i * Bq : (i + 1) * Bq, :]
-            Lij = L[i * Bq : (i + 1) * Bq]
-            mij = torch.full((Bq,), -torch.inf)
-            for j in range(Tk):
-                Kj = K[j * Bk : (j + 1) * Bk, :]
-                Vj = V[j * Bk : (j + 1) * Bk, :]
+        O = torch.zeros((B, Nq, d), device=Q.device)
+        L = torch.zeros((B, Nq), device=Q.device)
 
-                Sij = einsum(Qi, Kj, "Bq d, Bk d -> Bq Bk") / math.sqrt(d)
-                mij_old = mij.clone().detach()  # Create a copy
-                Sij_rowmax = torch.max(Sij, dim=-1).values  # (Bq,)
-                mij = torch.max(mij_old, Sij_rowmax)  # (Bq,)
+        for b in range(B):
+            for i in range(Tq):
+                Qi = Q[b][i * Bq : (i + 1) * Bq, :]
+                Oij = O[b][i * Bq : (i + 1) * Bq, :]
+                Lij = L[b][i * Bq : (i + 1) * Bq]
+                mij = torch.full((Bq,), -torch.inf)
+                for j in range(Tk):
+                    Kj = K[b][j * Bk : (j + 1) * Bk, :]
+                    Vj = V[b][j * Bk : (j + 1) * Bk, :]
 
-                # Sij is (Bq, Bk), and mij is (Bq,).
-                # PyTorch's broadcasting starts with trailing dimension, in
-                # this case Bk vs. Bq, and wouldn't work here.
-                Pij = torch.exp(Sij - rearrange(mij, "(Bq x) -> Bq x", x=1))  # (Bq, Bk)
-                Lij = torch.exp(mij_old - mij) * Lij + torch.sum(Pij, dim=-1)  # (Bq,)
-                Oij = einsum(
-                    torch.diag(torch.exp(mij_old - mij)), Oij, "Bq Bq, Bq d -> Bq d"
-                ) + einsum(Pij, Vj, "Bq Bk, Bk d -> Bq d")
+                    Sij = einsum(Qi, Kj, "Bq d, Bk d -> Bq Bk") / math.sqrt(d)
+                    mij_old = mij.clone().detach()  # Create a copy
+                    Sij_rowmax = torch.max(Sij, dim=-1).values  # (Bq,)
+                    mij = torch.max(mij_old, Sij_rowmax)  # (Bq,)
 
-            Oij = einsum(torch.diag(1 / Lij), Oij, "Bq Bq, Bq d -> Bq d")
-            Lij = torch.log(Lij) + mij
+                    # Sij is (Bq, Bk), and mij is (Bq,).
+                    # PyTorch's broadcasting starts with trailing dimension, in
+                    # this case Bk vs. Bq, and wouldn't work here.
+                    # (Bq, Bk)
+                    Pij = torch.exp(Sij - rearrange(mij, "(Bq x) -> Bq x", x=1))
 
-            O[i * Bq : (i + 1) * Bq, :] = Oij
-            L[i * Bq : (i + 1) * Bq] = Lij
+                    # (Bq,)
+                    Lij = torch.exp(mij_old - mij) * Lij + torch.sum(Pij, dim=-1)
 
-        # revert shape
-        Q = rearrange(Q, "(b m) d -> b m d", m=m)
-        K = rearrange(K, "(b n) d -> b n d", n=n)
-        V = rearrange(V, "(b n) d -> b n d", n=n)
-        L = rearrange(L, "(b m) -> b m", m=m)
-        O = rearrange(O, "(b m) d -> b m d", m=m)
-        print(f"O sum: {O.sum()}, L sum: {L.sum()}")
+                    # (Bq, d)
+                    Oij = einsum(
+                        torch.diag(torch.exp(mij_old - mij)), Oij, "Bq Bq, Bq d -> Bq d"
+                    ) + einsum(Pij, Vj, "Bq Bk, Bk d -> Bq d")
+
+                Oij = einsum(torch.diag(1 / Lij), Oij, "Bq Bq, Bq d -> Bq d")
+                Lij = torch.log(Lij) + mij
+
+                O[b][i * Bq : (i + 1) * Bq, :] = Oij
+                L[b][i * Bq : (i + 1) * Bq] = Lij
 
         ctx.save_for_backward(Q, K, V, L, O)
-
         return O
 
     @staticmethod
