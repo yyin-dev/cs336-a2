@@ -4,6 +4,13 @@ from typing import Type
 
 import torch
 
+import os
+import sys
+
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(parent_dir)
+
+from flashattention import FlashAttentionPytorch, FlashAttentionKernelPytorch
 
 
 def get_flashattention_autograd_function_pytorch() -> Type:
@@ -16,7 +23,8 @@ def get_flashattention_autograd_function_pytorch() -> Type:
         A class object (not an instance of the class)
     """
     # For example: return MyFlashAttnAutogradFunctionClass
-    raise NotImplementedError
+    # return FlashAttentionPytorch
+    return FlashAttentionKernelPytorch
 
 
 def get_flashattention_autograd_function_triton() -> Type:
@@ -56,7 +64,9 @@ def get_ddp_individual_parameters(module: torch.nn.Module) -> torch.nn.Module:
     raise NotImplementedError
 
 
-def ddp_individual_parameters_on_after_backward(ddp_model: torch.nn.Module, optimizer: torch.optim.Optimizer):
+def ddp_individual_parameters_on_after_backward(
+    ddp_model: torch.nn.Module, optimizer: torch.optim.Optimizer
+):
     """
     Code to run after the backward pass is completed, but before we take
     an optimizer step.
@@ -92,7 +102,9 @@ def get_ddp_bucketed(module: torch.nn.Module, bucket_size_mb: float) -> torch.nn
     raise NotImplementedError
 
 
-def ddp_bucketed_on_after_backward(ddp_model: torch.nn.Module, optimizer: torch.optim.Optimizer):
+def ddp_bucketed_on_after_backward(
+    ddp_model: torch.nn.Module, optimizer: torch.optim.Optimizer
+):
     """
     Code to run after the backward pass is completed, but before we take
     an optimizer step.
@@ -107,7 +119,9 @@ def ddp_bucketed_on_after_backward(ddp_model: torch.nn.Module, optimizer: torch.
     raise NotImplementedError
 
 
-def ddp_bucketed_on_train_batch_start(ddp_model: torch.nn.Module, optimizer: torch.optim.Optimizer):
+def ddp_bucketed_on_train_batch_start(
+    ddp_model: torch.nn.Module, optimizer: torch.optim.Optimizer
+):
     """
     Code to run at the very start of the training step.
 
@@ -120,7 +134,9 @@ def ddp_bucketed_on_train_batch_start(ddp_model: torch.nn.Module, optimizer: tor
     raise NotImplementedError
 
 
-def get_sharded_optimizer(params, optimizer_cls: Type[torch.optim.Optimizer], **kwargs) -> torch.optim.Optimizer:
+def get_sharded_optimizer(
+    params, optimizer_cls: Type[torch.optim.Optimizer], **kwargs
+) -> torch.optim.Optimizer:
     """
     Returns a torch.optim.Optimizer that handles optimizer state sharding
     of the given optimizer_cls on the provided parameters.
