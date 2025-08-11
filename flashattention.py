@@ -44,6 +44,28 @@ def next_power_of_2(x):
     return 1 if x == 0 else 2 ** math.ceil(math.log2(x))
 
 
+def flashattention_bwd(Q, K, V, O, dO, L):
+    """
+    Args
+        Q:  b m d
+        K:  b n d
+        V:  b n d
+        O:  b m d
+        dO: b m d
+        L:  b m
+    """
+    d = Q.shape[-1]
+    S = einsum(Q, K, "b m d, b n d -> b m n") / math.sqrt(d)
+    P = torch.exp(S - rearrange(L, "b (m x) -> b m x", x=1))  # b m n
+    dV = einsum(P, dO, "b m n, b m d -> b n d")
+    dP = einsum(dO, V, "b m d, b n d -> b m n")
+    D = torch.sum(O * dO, dim=-1, keepdim=True)  # b m 1
+    dS = P * (dP - D)
+    dQ = einsum(dS, K, "b m n, b n d -> b m d") / math.sqrt(d)
+    dK = einsum(dS, Q, "b m n, b m d -> b n d") / math.sqrt(d)
+    return dQ, dK, dV
+
+
 class FlashAttentionKernelPytorch(torch.autograd.Function):
     @staticmethod
     def forward(ctx, Q, K, V, is_causal=False):
@@ -108,8 +130,11 @@ class FlashAttentionKernelPytorch(torch.autograd.Function):
         return O
 
     @staticmethod
-    def backward(ctx, grad_output):  # pyright: ignore[reportIncompatibleMethodOverride]
-        raise NotImplementedError
+    def backward(ctx, dO):  # pyright: ignore[reportIncompatibleMethodOverride]
+        Q, K, V, L, O = ctx.saved_tensors
+        compiled_bwd = torch.compile(flashattention_bwd)
+        dQ, dK, dV = compiled_bwd(Q, K, V, O, dO, L)
+        return (dQ, dK, dV, None)  # None is needed for is_causal?
 
 
 @triton.jit
@@ -311,5 +336,8 @@ class FlashAttentionKernelTriton(torch.autograd.Function):
         return O
 
     @staticmethod
-    def backward(ctx, grad_output):  # pyright: ignore[reportIncompatibleMethodOverride]
-        raise NotImplementedError
+    def backward(ctx, dO):  # pyright: ignore[reportIncompatibleMethodOverride]
+        Q, K, V, L, O = ctx.saved_tensors
+        compiled_bwd = torch.compile(flashattention_bwd)
+        dQ, dK, dV = compiled_bwd(Q, K, V, O, dO, L)
+        return (dQ, dK, dV, None)  # None is needed for is_causal?
