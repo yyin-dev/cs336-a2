@@ -139,6 +139,7 @@ def flashattention_fwd(
     D: tl.constexpr,
     Q_TILE_SIZE: tl.constexpr,
     K_TILE_SIZE: tl.constexpr,
+    is_causal: tl.constexpr,
 ):
     # When TRITON_INTERPRET=1, print() works in kernel.
     # Otherwise, needs to use tl.device_print()
@@ -207,6 +208,17 @@ def flashattention_fwd(
         Vj = tl.load(V_block_ptr, boundary_check=(0, 1), padding_option="zero")
 
         Sij = tl.dot(Qi, tl.trans(Kj)) * scale
+
+        if is_causal:
+            # Compare (x, 1) with (1, y) gives (x, y)
+            q_indices = query_tile_index * Q_TILE_SIZE + tl.arange(0, Q_TILE_SIZE)
+            k_indices = j * K_TILE_SIZE + tl.arange(0, K_TILE_SIZE)
+            mask = tl.reshape(q_indices, (Q_TILE_SIZE, 1)) >= tl.reshape(
+                k_indices, (1, K_TILE_SIZE)
+            )
+            Sij_discounted = Sij - 1e6
+            Sij = tl.where(mask, Sij, Sij_discounted)
+
         Sij_rowmax = tl.max(Sij, axis=-1)
 
         mij = tl.maximum(mij_old, Sij_rowmax)
@@ -255,6 +267,7 @@ class FlashAttentionKernelTriton(torch.autograd.Function):
 
         ctx.Q_TILE_SIZE = 16
         ctx.K_TILE_SIZE = 16
+        ctx.is_causal = is_causal
 
         assert (
             Q.is_contiguous()
@@ -290,6 +303,7 @@ class FlashAttentionKernelTriton(torch.autograd.Function):
             D=d,
             Q_TILE_SIZE=ctx.Q_TILE_SIZE,
             K_TILE_SIZE=ctx.K_TILE_SIZE,
+            is_causal=ctx.is_causal,
         )
 
         ctx.save_for_backward(Q, K, V, L, O)
