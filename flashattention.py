@@ -44,7 +44,7 @@ def next_power_of_2(x):
     return 1 if x == 0 else 2 ** math.ceil(math.log2(x))
 
 
-def flashattention_bwd(Q, K, V, O, dO, L):
+def flashattention_bwd(Q, K, V, O, dO, L, is_causal):
     """
     Args
         Q:  b m d
@@ -54,9 +54,31 @@ def flashattention_bwd(Q, K, V, O, dO, L):
         dO: b m d
         L:  b m
     """
+    m = Q.shape[-2]
+    n = K.shape[-2]
     d = Q.shape[-1]
     S = einsum(Q, K, "b m d, b n d -> b m n") / math.sqrt(d)
     P = torch.exp(S - rearrange(L, "b (m x) -> b m x", x=1))  # b m n
+
+    if is_causal:
+        # In the forward pass, the attention score S = mask(QK/sqrt(d)).
+        # The masking sets Sij to -inf for i < j.
+        # The probabilities P = softmax(S). The masked entries are essentially
+        # -inf, their softmax probabilities becomes essentially 0 - not
+        # attending to future tokens. In other words, the masked logits never
+        # affect the output.
+        #
+        # In the backward pass, everything words the same as the non-causal
+        # case except that there's no gradient flowing back through Pij's that
+        # are zeros for dS = P * (dP - D).
+        #
+        # For implementation, just need to ensure that the mask is applied
+        # consistently: by masking either P or dS.
+        q_indices = rearrange(torch.arange(0, m, device=Q.device), "(m x) -> m x", x=1)
+        k_indices = rearrange(torch.arange(0, n, device=Q.device), "(n x) -> x n", x=1)
+        mask = q_indices < k_indices
+        P = torch.masked_fill(P, mask, 0.0)
+
     dV = einsum(P, dO, "b m n, b m d -> b n d")
     dP = einsum(dO, V, "b m d, b n d -> b m n")
     D = torch.sum(O * dO, dim=-1, keepdim=True)  # b m 1
@@ -66,7 +88,7 @@ def flashattention_bwd(Q, K, V, O, dO, L):
     return dQ, dK, dV
 
 
-class FlashAttentionKernelPytorch(torch.autograd.Function):
+class FlashAttentionPytorch(torch.autograd.Function):
     @staticmethod
     def forward(ctx, Q, K, V, is_causal=False):
         """
@@ -127,13 +149,14 @@ class FlashAttentionKernelPytorch(torch.autograd.Function):
                 L[b][i * Bq : (i + 1) * Bq] = Lij
 
         ctx.save_for_backward(Q, K, V, L, O)
+        ctx.is_causal = is_causal
         return O
 
     @staticmethod
     def backward(ctx, dO):  # pyright: ignore[reportIncompatibleMethodOverride]
         Q, K, V, L, O = ctx.saved_tensors
         compiled_bwd = torch.compile(flashattention_bwd)
-        dQ, dK, dV = compiled_bwd(Q, K, V, O, dO, L)
+        dQ, dK, dV = compiled_bwd(Q, K, V, O, dO, L, ctx.is_causal)
         return (dQ, dK, dV, None)  # None is needed for is_causal?
 
 
@@ -272,7 +295,7 @@ def flashattention_fwd(
     tl.store(L_block_ptr, Lij, boundary_check=(0,))
 
 
-class FlashAttentionKernelTriton(torch.autograd.Function):
+class FlashAttentionTriton(torch.autograd.Function):
     @staticmethod
     def forward(ctx, Q, K, V, is_causal=False):
         """
@@ -339,5 +362,5 @@ class FlashAttentionKernelTriton(torch.autograd.Function):
     def backward(ctx, dO):  # pyright: ignore[reportIncompatibleMethodOverride]
         Q, K, V, L, O = ctx.saved_tensors
         compiled_bwd = torch.compile(flashattention_bwd)
-        dQ, dK, dV = compiled_bwd(Q, K, V, O, dO, L)
+        dQ, dK, dV = compiled_bwd(Q, K, V, O, dO, L, ctx.is_causal)
         return (dQ, dK, dV, None)  # None is needed for is_causal?

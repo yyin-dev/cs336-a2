@@ -12,8 +12,8 @@ sys.path.append(parent_dir)
 
 from flashattention import (
     FlashAttentionPytorch,
-    FlashAttentionKernelPytorch,
-    FlashAttentionKernelTriton,
+    FlashAttentionPytorch,
+    FlashAttentionTriton,
 )
 
 
@@ -28,7 +28,7 @@ def get_flashattention_autograd_function_pytorch() -> Type:
     """
     # For example: return MyFlashAttnAutogradFunctionClass
     # return FlashAttentionPytorch
-    return FlashAttentionKernelPytorch
+    return FlashAttentionPytorch
 
 
 def get_flashattention_autograd_function_triton() -> Type:
@@ -44,7 +44,7 @@ def get_flashattention_autograd_function_triton() -> Type:
         A class object (not an instance of the class)
     """
     # For example: return MyTritonFlashAttentionAutogradFunctionClass
-    return FlashAttentionKernelTriton
+    return FlashAttentionTriton
 
 
 def get_ddp_individual_parameters(module: torch.nn.Module) -> torch.nn.Module:
