@@ -65,11 +65,11 @@ def benchmark_forward_pytorch(Q, K, V, is_causal=True):
     return triton.testing.do_bench(fn)
 
 
-def benchmark_forward_triton(Q, K, V, is_causal=True):
+def benchmark_forward_triton(Q, K, V, is_causal=True, q_tile_size=32, k_tile_size=32):
     """Benchmark Triton forward pass"""
 
     def fn():
-        return FlashAttentionTriton.apply(Q, K, V, is_causal)
+        return FlashAttentionTriton.apply(Q, K, V, is_causal, q_tile_size, k_tile_size)
 
     return triton.testing.do_bench(fn)
 
@@ -89,18 +89,88 @@ def benchmark_end_to_end_pytorch(Q, K, V, is_causal=True):
     return triton.testing.do_bench(fn)
 
 
-def benchmark_end_to_end_triton(Q, K, V, is_causal=True):
+def benchmark_end_to_end_triton(
+    Q, K, V, is_causal=True, q_tile_size=32, k_tile_size=32
+):
     """Benchmark Triton end-to-end forward + backward pass"""
 
     def fn():
         Q_clone = Q.clone().detach().requires_grad_(True)
         K_clone = K.clone().detach().requires_grad_(True)
         V_clone = V.clone().detach().requires_grad_(True)
-        O = FlashAttentionTriton.apply(Q_clone, K_clone, V_clone, is_causal)
+        O = FlashAttentionTriton.apply(
+            Q_clone, K_clone, V_clone, is_causal, q_tile_size, k_tile_size
+        )
         loss = O.sum()
         loss.backward()
 
     return triton.testing.do_bench(fn)
+
+
+# Define tile size configurations to test
+def get_tile_configs(seq_len, d_model):
+    """Get comprehensive tile configurations for given sequence length and head dimension"""
+    configs = []
+
+    # Base tile sizes to consider
+    tile_sizes = [16, 32, 64, 128]
+
+    if seq_len <= 256:
+        # Small sequences: test smaller tiles for better occupancy
+        configs = [(16, 16), (16, 32), (32, 16), (32, 32), (32, 64), (64, 32)]
+    elif seq_len <= 1024:
+        # Medium sequences: balanced approach
+        configs = [
+            (16, 16),
+            (32, 32),
+            (64, 32),
+            (32, 64),
+            (64, 64),
+            (128, 32),
+            (32, 128),
+        ]
+    elif seq_len <= 4096:
+        # Large sequences: favor larger tiles to reduce kernel launches
+        configs = [
+            (32, 32),
+            (64, 32),
+            (32, 64),
+            (64, 64),
+            (128, 32),
+            (32, 128),
+            (128, 64),
+            (64, 128),
+        ]
+    else:
+        # Very large sequences: use largest tiles
+        configs = [
+            (64, 32),
+            (32, 64),
+            (64, 64),
+            (128, 32),
+            (32, 128),
+            (128, 64),
+            (64, 128),
+            (128, 128),
+        ]
+
+    # Filter configs based on d_model to avoid excessive register usage
+    if d_model > 128:
+        # For large d_model, prefer smaller tiles to fit in registers
+        configs = [(q, k) for q, k in configs if q <= 64 and k <= 64]
+    elif d_model > 64:
+        # For medium d_model, limit tile sizes moderately
+        configs = [(q, k) for q, k in configs if q <= 128 and k <= 128]
+
+    # Remove duplicates while preserving order
+    seen = set()
+    filtered_configs = []
+    for config in configs:
+        if config not in seen:
+            seen.add(config)
+            filtered_configs.append(config)
+
+    return filtered_configs
 
 
 def run_benchmark():
@@ -133,46 +203,79 @@ def run_benchmark():
             # Generate inputs
             Q, K, V = generate_inputs(batch_size, seq_len, d_model, dtype, device)
 
+            # Get tile configurations to test
+            tile_configs = get_tile_configs(seq_len, d_model)
+
             # Warm up GPU
             for _ in range(3):
                 _ = attention(Q, K, V, is_causal)
-                _ = FlashAttentionTriton.apply(Q, K, V, is_causal)
+                _ = FlashAttentionTriton.apply(Q, K, V, is_causal, 32, 32)
 
             torch.cuda.synchronize()
 
-            # Benchmark forward pass
+            # Benchmark PyTorch (only once per config)
             fwd_pytorch_time = benchmark_forward_pytorch(Q, K, V, is_causal)
-            fwd_triton_time = benchmark_forward_triton(Q, K, V, is_causal)
-
-            # Benchmark end-to-end (forward + backward)
             e2e_pytorch_time = benchmark_end_to_end_pytorch(Q, K, V, is_causal)
-            e2e_triton_time = benchmark_end_to_end_triton(Q, K, V, is_causal)
-
-            # Calculate backward time by subtraction
             bwd_pytorch_time = e2e_pytorch_time - fwd_pytorch_time
-            bwd_triton_time = e2e_triton_time - fwd_triton_time
 
-            results.append(
-                {
-                    "seq_len": seq_len,
-                    "d_model": d_model,
-                    "dtype": dtype,
-                    "fwd_pytorch": fwd_pytorch_time,
-                    "fwd_triton": fwd_triton_time,
-                    "bwd_pytorch": bwd_pytorch_time,
-                    "bwd_triton": bwd_triton_time,
-                    "e2e_pytorch": e2e_pytorch_time,
-                    "e2e_triton": e2e_triton_time,
-                }
-            )
+            # Test each tile configuration
+            best_fwd_time = float("inf")
+            best_config = None
+            config_results = []
 
-            print(
-                f"Seq Len: {seq_len:5d}, D Model: {d_model:3d}, "
-                f"Dtype: {str(dtype).split('.')[-1]:8s} - "
-                f"Fwd: PT {fwd_pytorch_time:.3f}ms / TR {fwd_triton_time:.3f}ms, "
-                f"Bwd: PT {bwd_pytorch_time:.3f}ms / TR {bwd_triton_time:.3f}ms, "
-                f"E2E: PT {e2e_pytorch_time:.3f}ms / TR {e2e_triton_time:.3f}ms"
-            )
+            for q_tile, k_tile in tile_configs:
+                # Benchmark forward pass
+                fwd_triton_time = benchmark_forward_triton(
+                    Q, K, V, is_causal, q_tile, k_tile
+                )
+
+                # Benchmark end-to-end (forward + backward)
+                e2e_triton_time = benchmark_end_to_end_triton(
+                    Q, K, V, is_causal, q_tile, k_tile
+                )
+
+                # Calculate backward time by subtraction
+                bwd_triton_time = e2e_triton_time - fwd_triton_time
+
+                # Track best configuration
+                if fwd_triton_time < best_fwd_time:
+                    best_fwd_time = fwd_triton_time
+                    best_config = (q_tile, k_tile)
+
+                config_results.append(
+                    {
+                        "seq_len": seq_len,
+                        "d_model": d_model,
+                        "dtype": dtype,
+                        "q_tile_size": q_tile,
+                        "k_tile_size": k_tile,
+                        "fwd_pytorch": fwd_pytorch_time,
+                        "fwd_triton": fwd_triton_time,
+                        "bwd_pytorch": bwd_pytorch_time,
+                        "bwd_triton": bwd_triton_time,
+                        "e2e_pytorch": e2e_pytorch_time,
+                        "e2e_triton": e2e_triton_time,
+                    }
+                )
+
+                print(
+                    f"Seq Len: {seq_len:5d}, D Model: {d_model:3d}, "
+                    f"Dtype: {str(dtype).split('.')[-1]:8s}, Tiles: ({q_tile:2d},{k_tile:2d}) - "
+                    f"Fwd: PT {fwd_pytorch_time:.3f}ms / TR {fwd_triton_time:.3f}ms, "
+                    f"Bwd: PT {bwd_pytorch_time:.3f}ms / TR {bwd_triton_time:.3f}ms, "
+                    f"E2E: PT {e2e_pytorch_time:.3f}ms / TR {e2e_triton_time:.3f}ms"
+                )
+
+            print(f"  → Best tile config for this setup: {best_config}")
+
+            # Add results with best tile marking
+            for config_result in config_results:
+                is_best = (
+                    config_result["q_tile_size"],
+                    config_result["k_tile_size"],
+                ) == best_config
+                config_result["is_best"] = is_best
+                results.append(config_result)
 
         except Exception as e:
             print(
@@ -194,6 +297,9 @@ def run_benchmark():
                 "Seq Len": result["seq_len"],
                 "D Model": result["d_model"],
                 "Dtype": dtype_str,
+                "Q Tile": result["q_tile_size"],
+                "K Tile": result["k_tile_size"],
+                "Best": "✓" if result["is_best"] else "",
                 "Fwd PT (ms)": f"{result['fwd_pytorch']:.3f}",
                 "Fwd TR (ms)": f"{result['fwd_triton']:.3f}",
                 "Fwd Speedup": f"{fwd_speedup:.2f}x",
@@ -208,15 +314,30 @@ def run_benchmark():
 
     df = pd.DataFrame(df_data)
 
+    # Create best-only table (filter to only best configurations)
+    best_df = df[df["Best"] == "✓"].copy()
+
+    # Print best configurations table
+    print("\n" + "=" * 80)
+    print("Best Configurations Only")
+    print("=" * 80)
+    print(best_df.to_string(index=False))
+
+    # Generate markdown table for best configurations
+    print("\n" + "=" * 80)
+    print("Best Configurations Markdown")
+    print("=" * 80)
+    print(best_df.to_markdown(index=False))
+
     # Print detailed results table
     print("\n" + "=" * 120)
     print("Detailed Results Table")
     print("=" * 120)
     print(df.to_string(index=False))
 
-    # Generate markdown table
+    # Generate markdown table for all results
     print("\n" + "=" * 80)
-    print("Markdown Table")
+    print("All Results Markdown Table")
     print("=" * 80)
     print(df.to_markdown(index=False))
 

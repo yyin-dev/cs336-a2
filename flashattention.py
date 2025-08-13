@@ -271,12 +271,15 @@ def flashattention_fwd(
 
 class FlashAttentionTriton(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, Q, K, V, is_causal=False):
+    def forward(ctx, Q, K, V, is_causal=False, q_tile_size=32, k_tile_size=32):
         """
         Args
             Q: ... m d
             K: ... n d
             V: ... n d
+            is_causal: whether to apply causal masking
+            q_tile_size: tile size for queries (default 32)
+            k_tile_size: tile size for keys (default 32)
         """
 
         B = Q.shape[0]
@@ -287,8 +290,8 @@ class FlashAttentionTriton(torch.autograd.Function):
         O = torch.empty((B, m, d), device=Q.device)
         L = torch.empty((B, m), device=Q.device)
 
-        ctx.Q_TILE_SIZE = 16
-        ctx.K_TILE_SIZE = 16
+        ctx.Q_TILE_SIZE = q_tile_size
+        ctx.K_TILE_SIZE = k_tile_size
         ctx.is_causal = is_causal
 
         assert (
@@ -337,4 +340,4 @@ class FlashAttentionTriton(torch.autograd.Function):
         Q, K, V, L, O = ctx.saved_tensors
         compiled_bwd = torch.compile(flashattention_bwd)
         dQ, dK, dV = compiled_bwd(Q, K, V, O, dO, L, ctx.is_causal)
-        return (dQ, dK, dV, None)  # None is needed for is_causal?
+        return (dQ, dK, dV, None, None, None)  # None is needed for is_causal?
