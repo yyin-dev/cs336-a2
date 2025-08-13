@@ -10,32 +10,6 @@ import triton
 import triton.language as tl
 
 
-class FlashAttentionPytorch(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, Q, K, V, is_causal=False):
-        """
-        Args
-            Q: ... m d
-            K: ... n d
-            V: ... n d
-        """
-
-        d = Q.shape[-1]
-
-        S = einsum(Q, K, "... m d, ... n d -> ... m n") / math.sqrt(d)
-        L = torch.exp(S).sum(dim=-1).log()
-        P = torch.softmax(S, dim=-1)
-        O = einsum(P, V, "... m n, ... n d -> ... m d")
-
-        ctx.save_for_backward(Q, K, V, L, O)
-
-        return O
-
-    @staticmethod
-    def backward(ctx, grad_output):  # pyright: ignore[reportIncompatibleMethodOverride]
-        raise NotImplementedError
-
-
 def cdiv(a, b):
     return (a + b - 1) // b
 

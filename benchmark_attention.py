@@ -1,3 +1,7 @@
+"""
+Benchmark PyTorch implementation of attention.
+"""
+
 import argparse
 import torch.nn as nn
 import torch
