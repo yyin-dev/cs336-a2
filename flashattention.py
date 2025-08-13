@@ -219,10 +219,14 @@ def flashattention_fwd(
     )
 
     Qi = tl.load(Q_block_ptr, boundary_check=(0, 1), padding_option="zero")
-    Oij = tl.zeros((Q_TILE_SIZE, D), dtype=tl.float32)
-    Lij = tl.zeros((Q_TILE_SIZE,), dtype=tl.float32)
-    mij_old = tl.full((Q_TILE_SIZE,), -torch.inf, dtype=tl.float32)
-    mij = tl.full((Q_TILE_SIZE,), -torch.inf, dtype=tl.float32)
+
+    # Store input dtype for output conversion
+    input_dtype = Qi.dtype
+
+    Oij = tl.zeros((Q_TILE_SIZE, D), dtype=input_dtype)
+    Lij = tl.zeros((Q_TILE_SIZE,), dtype=input_dtype)
+    mij_old = tl.full((Q_TILE_SIZE,), -torch.inf, dtype=input_dtype)
+    mij = tl.full((Q_TILE_SIZE,), -torch.inf, dtype=input_dtype)
 
     Tk = tl.cdiv(N_KEYS, K_TILE_SIZE)
     for j in range(Tk):
@@ -243,27 +247,46 @@ def flashattention_fwd(
 
         Sij_rowmax = tl.max(Sij, axis=-1)
 
-        mij = tl.maximum(mij_old, Sij_rowmax)
+        mij = tl.maximum(mij_old, Sij_rowmax).to(input_dtype)
 
-        Pij = tl.exp(Sij - tl.reshape(mij, (Q_TILE_SIZE, 1)))
+        if input_dtype == tl.bfloat16:
+            # tl.exp doesn't support bfloat16
+            # https://github.com/triton-lang/triton/issues/1468
+            exp_input = (Sij - tl.reshape(mij, (Q_TILE_SIZE, 1))).to(tl.float32)
+            Pij = tl.exp(exp_input).to(input_dtype)
+        else:
+            Pij = tl.exp(Sij - tl.reshape(mij, (Q_TILE_SIZE, 1)))
 
-        Lij = tl.exp(mij_old - mij) * Lij + tl.sum(Pij, axis=-1)
+        # Keep consistent dtype throughout the computation
+        if input_dtype == tl.bfloat16:
+            # Maybe tl.log has similar issue like tl.exp?
+            scaling = tl.exp((mij_old - mij).to(tl.float32)).to(input_dtype)
+        else:
+            scaling = tl.exp(mij_old - mij)
+
+        Lij = scaling * Lij + tl.sum(Pij, axis=-1)
+        Lij = Lij.to(input_dtype)
 
         # mij: (Q_TILE_SIZE,)
         # Oij: (Q_TILE_SIZE, D)
         # The diagonal matrix is implemented with element-wise multplication.
         # When A is a diagonal matrix, AB just scales rows in B by the
         # corresponding diagonal element in A.
-        Oij = tl.reshape(tl.exp(mij_old - mij), (Q_TILE_SIZE, 1)) * Oij + tl.dot(
-            Pij, Vj
-        )
+        Oij = tl.reshape(scaling, (Q_TILE_SIZE, 1)) * Oij + tl.dot(Pij, Vj)
+        Oij = Oij.to(input_dtype)
 
         mij_old = mij
         K_block_ptr = K_block_ptr.advance((K_TILE_SIZE, 0))
         V_block_ptr = V_block_ptr.advance((K_TILE_SIZE, 0))
 
     Oij = tl.reshape(1 / Lij, (Q_TILE_SIZE, 1)) * Oij
-    Lij = tl.log(Lij) + mij
+    Oij = Oij.to(input_dtype)
+
+    if input_dtype == tl.bfloat16:
+        Lij = tl.log(Lij.to(tl.float32)).to(input_dtype) + mij
+    else:
+        Lij = tl.log(Lij) + mij
+    Lij = Lij.to(input_dtype)
 
     tl.store(O_block_ptr, Oij, boundary_check=(0, 1))
     tl.store(L_block_ptr, Lij, boundary_check=(0,))
@@ -287,8 +310,8 @@ class FlashAttentionTriton(torch.autograd.Function):
         n = K.shape[1]
         d = Q.shape[2]
 
-        O = torch.empty((B, m, d), device=Q.device)
-        L = torch.empty((B, m), device=Q.device)
+        O = torch.empty((B, m, d), device=Q.device, dtype=Q.dtype)
+        L = torch.empty((B, m), device=Q.device, dtype=Q.dtype)
 
         ctx.Q_TILE_SIZE = q_tile_size
         ctx.K_TILE_SIZE = k_tile_size

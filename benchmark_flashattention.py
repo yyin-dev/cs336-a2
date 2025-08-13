@@ -189,7 +189,7 @@ def run_benchmark():
     # Parameter ranges - start with smaller subset for testing
     seq_lengths = [2**i for i in range(7, 17)]  # 128 to 65536
     d_models = [2**i for i in range(4, 8)]  # 16 to 128
-    dtypes = [torch.float32]  # TODO: include torch.bfloat16
+    dtypes = [torch.float32, torch.bfloat16]
 
     print("FlashAttention Benchmark Results")
     print("=" * 80)
@@ -352,38 +352,46 @@ def quick_test():
     batch_size = 1
     seq_len = 128
     d_model = 64
-    dtype = torch.float32
     is_causal = True
 
-    print("Quick Test - Single Configuration")
-    print(f"Seq Len: {seq_len}, D Model: {d_model}, Dtype: {dtype}")
+    # Test both dtypes
+    dtypes_to_test = [torch.float32, torch.bfloat16]
 
-    # Generate inputs
-    Q, K, V = generate_inputs(batch_size, seq_len, d_model, dtype, device)
+    for dtype in dtypes_to_test:
+        print(f"\nQuick Test - Single Configuration")
+        print(f"Seq Len: {seq_len}, D Model: {d_model}, Dtype: {dtype}")
 
-    # Test forward passes
-    try:
-        pytorch_output = attention(Q, K, V, is_causal)
-        print("✓ PyTorch forward pass works")
-    except Exception as e:
-        print(f"✗ PyTorch forward pass failed: {e}")
-        return
+        # Generate inputs
+        Q, K, V = generate_inputs(batch_size, seq_len, d_model, dtype, device)
 
-    try:
-        triton_output = FlashAttentionTriton.apply(Q, K, V, is_causal)
-        print("✓ Triton forward pass works")
-    except Exception as e:
-        print(f"✗ Triton forward pass failed: {e}")
-        return
+        # Test forward passes
+        try:
+            pytorch_output = attention(Q, K, V, is_causal)
+            print("✓ PyTorch forward pass works")
+        except Exception as e:
+            print(f"✗ PyTorch forward pass failed: {e}")
+            continue
 
-    # Quick benchmark
-    fwd_pytorch_time = benchmark_forward_pytorch(Q, K, V, is_causal)
-    fwd_triton_time = benchmark_forward_triton(Q, K, V, is_causal)
+        try:
+            triton_output = FlashAttentionTriton.apply(Q, K, V, is_causal)
+            print("✓ Triton forward pass works")
 
-    print(
-        f"Forward - PyTorch: {fwd_pytorch_time:.3f}ms, Triton: {fwd_triton_time:.3f}ms"
-    )
-    print(f"Speedup: {fwd_pytorch_time/fwd_triton_time:.2f}x")
+            # Check outputs are close
+            max_diff = torch.max(torch.abs(pytorch_output - triton_output))
+            print(f"✓ Max difference between outputs: {max_diff:.6f}")
+
+        except Exception as e:
+            print(f"✗ Triton forward pass failed: {e}")
+            continue
+
+        # Quick benchmark
+        fwd_pytorch_time = benchmark_forward_pytorch(Q, K, V, is_causal)
+        fwd_triton_time = benchmark_forward_triton(Q, K, V, is_causal)
+
+        print(
+            f"Forward - PyTorch: {fwd_pytorch_time:.3f}ms, Triton: {fwd_triton_time:.3f}ms"
+        )
+        print(f"Speedup: {fwd_pytorch_time/fwd_triton_time:.2f}x")
 
 
 if __name__ == "__main__":
