@@ -2,13 +2,19 @@
 Benchmark PyTorch attention vs. Triton FlashAttention.
 """
 
+import os
+import sys
+
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(parent_dir)
+
 import torch
 import triton.testing
 import itertools
 from einops import einsum, rearrange
 import math
 import pandas as pd
-from flashattention import FlashAttentionTriton
+from cs336_systems.flashattention import FlashAttentionTriton
 
 
 def attention(Q, K, V, is_causal=False):

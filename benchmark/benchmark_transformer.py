@@ -1,7 +1,13 @@
-from cs336_basics.model import BasicsTransformerLM as Transformer
-from cs336_basics.nn_utils import cross_entropy
-from cs336_basics.optimizer import AdamW
-from cs336_basics.annotated_model import BasicsTransformerLM as AnnotatedTransformer
+import os
+import sys
+
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(parent_dir)
+
+from cs336_systems.model import BasicsTransformerLM as Transformer
+from cs336_systems.nn_utils import cross_entropy
+from cs336_systems.optimizer import AdamW
+from cs336_systems.annotated_model import BasicsTransformerLM as AnnotatedTransformer
 import argparse
 from contextlib import nullcontext
 
@@ -165,7 +171,9 @@ def main():
     parser.add_argument("--profile_compute", action="store_true")
     parser.add_argument("--mixed_precision", action="store_true")
     parser.add_argument("--profile_memory", action="store_true")
-    parser.add_argument("--memory_snapshot_file", type=str, default="memory_snapshot.pickle")
+    parser.add_argument(
+        "--memory_snapshot_file", type=str, default="memory_snapshot.pickle"
+    )
 
     args = parser.parse_args()
     print(args)
