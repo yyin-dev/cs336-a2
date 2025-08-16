@@ -416,6 +416,8 @@ Observations:
 
 ## Problem (distributed_communication_single_node)
 
+Note: benchmarked on CPU.
+
 |        | world size = 2 | world size = 4 | world size = 6 |
 | ------ | -------------- | -------------- | -------------- |
 | 1MB    | 0.024          | 0.029          | 0.06           |
