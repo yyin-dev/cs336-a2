@@ -414,6 +414,25 @@ Observations:
 * The speedup for forward pass dimishes for longer sequences, probably because we become more compute-bound when the sequence length increases.
 * For forward, only see noticable speedup from bfloat16 for long sequence length (32768). This also makes sense because there's higher memory pressure for longer sequences.
 
+## Problem (distributed_communication_single_node)
+
+|        | world size = 2 | world size = 4 | world size = 6 |
+| ------ | -------------- | -------------- | -------------- |
+| 1MB    | 0.024          | 0.029          | 0.06           |
+| 10MB   | 0.061          | 0.14           | 0.26           |
+| 100MB  | 0.62           | 1.42           | 2.95           |
+| 1000MB | 6.25           | 15.7           | 34.6           |
+
+With 2 processes, we get linear scaling. At 1MB, the time is likely dominated by overhead (compare with world size of 4).
+
+With 4 processes, we also get almost linear scaling. 
+
+With 6 processes, we get superlinear scaling w.r.t data size. Probably because of more significant synchronization overhead (e.g. faster worker waiting for slower ones)?
+
+
+
+
+
 ## Appendix
 
 ## Debugging non-Triton FlashAttention
