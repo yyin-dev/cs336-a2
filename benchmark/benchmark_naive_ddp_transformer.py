@@ -120,13 +120,46 @@ def ddp_transformer_xl(rank, world_size, input_batch, output_batch, num_steps):
 
         # sync gradients
         sync_start = timeit.default_timer()
-        for param in model.parameters():
+        sync_in_batch = True
+
+        if sync_in_batch:
+            # all-reduce all gradients in one batch
+            all_grads_flattened = []
+            for param in model.parameters():
+                assert param.grad is not None
+                flattened_grad = torch.flatten(param.grad)
+                all_grads_flattened.append(flattened_grad)
+
+            all_grads = torch.concat(all_grads_flattened)
             if dist.get_backend() == "gloo":
                 # Gloo doesn't support AVG
-                dist.all_reduce(tensor=param.grad, op=dist.ReduceOp.SUM, async_op=False)
-                param.grad /= world_size
+                dist.all_reduce(tensor=all_grads, op=dist.ReduceOp.SUM, async_op=False)
+                all_grads /= world_size
             else:
-                dist.all_reduce(tensor=param.grad, op=dist.ReduceOp.AVG, async_op=False)
+                dist.all_reduce(tensor=all_grads, op=dist.ReduceOp.AVG, async_op=False)
+
+            start = 0
+            for param in model.parameters():
+                assert param.grad is not None
+                grad_numel = param.grad.numel()
+                grad = torch.reshape(
+                    all_grads[start : start + grad_numel], param.grad.shape
+                )
+                param.grad = grad
+                start += grad_numel
+        else:
+            # all-reduce each gradient separately
+            for param in model.parameters():
+                if dist.get_backend() == "gloo":
+                    # Gloo doesn't support AVG
+                    dist.all_reduce(
+                        tensor=param.grad, op=dist.ReduceOp.SUM, async_op=False
+                    )
+                    param.grad /= world_size
+                else:
+                    dist.all_reduce(
+                        tensor=param.grad, op=dist.ReduceOp.AVG, async_op=False
+                    )
 
         if torch.cuda.is_available():
             torch.cuda.synchronize()

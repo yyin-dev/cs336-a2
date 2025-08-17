@@ -6,8 +6,6 @@ import os
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
-import itertools
-import timeit
 from copy import deepcopy
 
 
@@ -33,6 +31,8 @@ def get_data():
 def setup(rank, world_size):
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = "29500"
+    # Needed to run on my MBA sometimes
+    # os.environ["GLOO_SOCKET_IFNAME"] = "en0"
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
@@ -77,13 +77,45 @@ def naive_ddp(
         loss = ddp_x.square().mean()
         loss.backward()
 
-        for param in params:
+        sync_in_batch = True
+
+        if sync_in_batch:
+
+            all_grads_flattened = []
+            for param in params:
+                assert param.grad is not None
+                flattened_grad = torch.flatten(param.grad)
+                all_grads_flattened.append(flattened_grad)
+
+            all_grads = torch.concat(all_grads_flattened)
             if dist.get_backend() == "gloo":
                 # Gloo doesn't support AVG
-                dist.all_reduce(tensor=param.grad, op=dist.ReduceOp.SUM, async_op=False)
-                param.grad /= world_size
+                dist.all_reduce(tensor=all_grads, op=dist.ReduceOp.SUM, async_op=False)
+                all_grads /= world_size
             else:
-                dist.all_reduce(tensor=param.grad, op=dist.ReduceOp.AVG, async_op=False)
+                dist.all_reduce(tensor=all_grads, op=dist.ReduceOp.AVG, async_op=False)
+
+            start = 0
+            for param in params:
+                assert param.grad is not None
+                grad_numel = param.grad.numel()
+                grad = torch.reshape(
+                    all_grads[start : start + grad_numel], param.grad.shape
+                )
+                param.grad = grad
+                start += grad_numel
+        else:
+            for param in params:
+                if dist.get_backend() == "gloo":
+                    # Gloo doesn't support AVG
+                    dist.all_reduce(
+                        tensor=param.grad, op=dist.ReduceOp.SUM, async_op=False
+                    )
+                    param.grad /= world_size
+                else:
+                    dist.all_reduce(
+                        tensor=param.grad, op=dist.ReduceOp.AVG, async_op=False
+                    )
 
         ddp_optimizer.step()
 
