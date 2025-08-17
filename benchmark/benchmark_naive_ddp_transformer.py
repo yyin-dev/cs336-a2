@@ -56,13 +56,25 @@ def ddp_transformer_xl(rank, world_size, input_batch, output_batch, num_steps):
     output_microbatch = output_batch[start_idx:end_idx].to(get_device(rank))
 
     if torch.cuda.is_available():
+        # XL
+        # model = BasicsTransformerLM(
+        #     vocab_size=50527,
+        #     context_length=256,
+        #     d_model=1600,
+        #     d_ff=6400,
+        #     num_layers=48,
+        #     num_heads=25,
+        #     rope_theta=10000,
+        # ).to(get_device(rank))
+
+        # large
         model = BasicsTransformerLM(
             vocab_size=50527,
             context_length=256,
-            d_model=1600,
-            d_ff=6400,
-            num_layers=48,
-            num_heads=25,
+            d_model=1280,
+            d_ff=5120,
+            num_layers=36,
+            num_heads=20,
             rope_theta=10000,
         ).to(get_device(rank))
     else:
@@ -124,13 +136,13 @@ def ddp_transformer_xl(rank, world_size, input_batch, output_batch, num_steps):
 
         if sync_in_batch:
             # all-reduce all gradients in one batch
-            all_grads_flattened = []
-            for param in model.parameters():
-                assert param.grad is not None
-                flattened_grad = torch.flatten(param.grad)
-                all_grads_flattened.append(flattened_grad)
+            all_grads_flattened = [
+                param.grad.view(-1)
+                for param in model.parameters()
+                if param.grad is not None
+            ]
 
-            all_grads = torch.concat(all_grads_flattened)
+            all_grads = torch.cat(all_grads_flattened)
             if dist.get_backend() == "gloo":
                 # Gloo doesn't support AVG
                 dist.all_reduce(tensor=all_grads, op=dist.ReduceOp.SUM, async_op=False)
