@@ -431,7 +431,16 @@ With 4 processes, we also get almost linear scaling.
 
 With 6 processes, we get superlinear scaling w.r.t data size. Probably because of more significant synchronization overhead (e.g. faster worker waiting for slower ones)?
 
+## Problem (naive_ddp_benchmarking)
 
+I trained on 2 A100 each with 40G RAM. Batch size is 4, so microbatch size is 2.  Warmup 5 steps, and benchmarked 10 steps. On average, each step spends about 5% time on gradient synchronization. See Appendix for output.
+
+The 5% ratio seems low for such a naive implementation but is also reasonable b/c:
+
+* There are only 2 processes, so the time spent waiting for slowest worker is short.
+* The model is quite large so we are compute-bound.
+* All communication is in localhost.
+* The GPU kernel for all-reduce is highly optimized.
 
 
 
@@ -506,6 +515,55 @@ Here's a systematic breakdown of the debugging process and hypotheses I tested:
        failure
 
   The debugging process took a methodical approach: algorithm → precision → implementation details → data organization, ultimately finding that the core mathematical implementation was sound but the batch handling was fundamentally flawed.
+```
+
+## DDP transformer benchmask result
+
+```
+[1] Warmup duration: 5.18s for 5 steps
+[0] Warmup duration: 5.22s for 5 steps
+[1] Gradient synced in 0.03s
+[0] Gradient synced in 0.06s
+[1] Training step 0 finished in 0.78s, gradient sync: 3.65%
+[0] Training step 0 finished in 0.79s, gradient sync: 8.00%
+[1] Gradient synced in 0.02s
+[0] Gradient synced in 0.06s
+[1] Training step 1 finished in 0.79s, gradient sync: 3.02%
+[0] Training step 1 finished in 0.79s, gradient sync: 7.93%
+[1] Gradient synced in 0.02s
+[0] Gradient synced in 0.06s
+[1] Training step 2 finished in 0.78s, gradient sync: 3.08%
+[0] Training step 2 finished in 0.78s, gradient sync: 7.96%
+[1] Gradient synced in 0.03s
+[0] Gradient synced in 0.06s
+[1] Training step 3 finished in 0.78s, gradient sync: 3.58%
+[0] Training step 3 finished in 0.78s, gradient sync: 7.95%
+[1] Gradient synced in 0.03s
+[0] Gradient synced in 0.06s
+[1] Training step 4 finished in 0.79s, gradient sync: 3.36%
+[0] Training step 4 finished in 0.79s, gradient sync: 7.93%
+[1] Gradient synced in 0.02s
+[0] Gradient synced in 0.06s
+[1] Training step 5 finished in 0.78s, gradient sync: 3.04%
+[0] Training step 5 finished in 0.78s, gradient sync: 7.95%
+[1] Gradient synced in 0.03s
+[0] Gradient synced in 0.06s
+[1] Training step 6 finished in 0.78s, gradient sync: 3.57%
+[0] Training step 6 finished in 0.79s, gradient sync: 7.93%
+[1] Gradient synced in 0.03s
+[0] Gradient synced in 0.06s
+[1] Training step 7 finished in 0.79s, gradient sync: 3.49%
+[0] Training step 7 finished in 0.79s, gradient sync: 7.93%
+[1] Gradient synced in 0.03s
+[0] Gradient synced in 0.06s
+[1] Training step 8 finished in 0.79s, gradient sync: 3.49%
+[0] Training step 8 finished in 0.79s, gradient sync: 7.92%
+[1] Gradient synced in 0.03s
+[0] Gradient synced in 0.06s
+[1] Training step 9 finished in 0.79s, gradient sync: 3.59%
+[1] Training duration: 7.87s for 10 steps, gradient sync: 3.38%
+[0] Training step 9 finished in 0.79s, gradient sync: 7.91%
+[0] Training duration: 7.87s for 10 steps, gradient sync: 7.93%
 ```
 
 
