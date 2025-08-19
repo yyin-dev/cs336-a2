@@ -1,5 +1,5 @@
 """
-DDP on Transformer XL, seq_len = 256.
+DDP on Transformer XL.
 """
 
 import os
@@ -17,6 +17,9 @@ random.seed(seed)
 torch.manual_seed(42)
 
 VOCAB_SIZE = 50527
+SEQUENCE_LEN = 64
+USE_XL = False
+SYNC_IN_BATCH = False
 
 
 def get_data(batch_size, seq_len):
@@ -56,27 +59,28 @@ def ddp_transformer_xl(rank, world_size, input_batch, output_batch, num_steps):
     output_microbatch = output_batch[start_idx:end_idx].to(get_device(rank))
 
     if torch.cuda.is_available():
-        # XL
-        # model = BasicsTransformerLM(
-        #     vocab_size=50527,
-        #     context_length=256,
-        #     d_model=1600,
-        #     d_ff=6400,
-        #     num_layers=48,
-        #     num_heads=25,
-        #     rope_theta=10000,
-        # ).to(get_device(rank))
-
-        # large
-        model = BasicsTransformerLM(
-            vocab_size=50527,
-            context_length=256,
-            d_model=1280,
-            d_ff=5120,
-            num_layers=36,
-            num_heads=20,
-            rope_theta=10000,
-        ).to(get_device(rank))
+        if USE_XL:
+            # XL
+            model = BasicsTransformerLM(
+                vocab_size=50527,
+                context_length=SEQUENCE_LEN,
+                d_model=1600,
+                d_ff=6400,
+                num_layers=48,
+                num_heads=25,
+                rope_theta=10000,
+            ).to(get_device(rank))
+        else:
+            # large
+            model = BasicsTransformerLM(
+                vocab_size=50527,
+                context_length=SEQUENCE_LEN,
+                d_model=1280,
+                d_ff=5120,
+                num_layers=36,
+                num_heads=20,
+                rope_theta=10000,
+            ).to(get_device(rank))
     else:
         # Just for testing
         model = torch.nn.Sequential(
@@ -132,9 +136,8 @@ def ddp_transformer_xl(rank, world_size, input_batch, output_batch, num_steps):
 
         # sync gradients
         sync_start = timeit.default_timer()
-        sync_in_batch = True
 
-        if sync_in_batch:
+        if SYNC_IN_BATCH:
             # all-reduce all gradients in one batch
             all_grads = [
                 param.grad for param in model.parameters() if param.grad is not None
@@ -200,9 +203,8 @@ def ddp_transformer_xl(rank, world_size, input_batch, output_batch, num_steps):
 
 if __name__ == "__main__":
     world_size = 2
-    batch_size = 8
-    seq_len = 256
-    (input_batch, output_batch) = get_data(batch_size, seq_len)
+    batch_size = 12
+    (input_batch, output_batch) = get_data(batch_size, SEQUENCE_LEN)
 
     num_steps = 10
     mp.spawn(  # pyright: ignore[reportPrivateImportUsage]

@@ -433,7 +433,7 @@ With 6 processes, we get superlinear scaling w.r.t data size. Probably because o
 
 ## Problem (naive_ddp_benchmarking)
 
-I trained on 2 A100 each with 40G RAM. Batch size is 4, so microbatch size is 2.  Warmup 5 steps, and benchmarked 10 steps. On average, each step spends about 5% time on gradient synchronization. See Appendix for output.
+I trained on 2 A100 each with 40G RAM. Batch size is 4, so microbatch size is 2.  Warmup 5 steps, and benchmarked 10 steps. On average, each step spends about 5% time on gradient synchronization. 
 
 The 5% ratio seems low for such a naive implementation but is also reasonable b/c:
 
@@ -442,7 +442,20 @@ The 5% ratio seems low for such a naive implementation but is also reasonable b/
 * All communication is in localhost.
 * The GPU kernel for all-reduce is highly optimized.
 
+## Problem (minimal_ddp_flat_benchmarking)
 
+Use `torch._utils._flatten_dense_tensors` and `torch._utils._unflatten_tensors`.   This requires extra memory (basically we double the amount of memory for gradient) and I this wouldn't fit into A100 with 40G, so I switched the large model. 
+
+| seq len | baseline total time | baseline sync time  | batch total time | batch sync time     |
+| ------- | ------------------- | ------------------- | ---------------- | ------------------- |
+| 64      | 3.71                | (0.2+0.35)/2 =0.275 | 3.63             | (0.05+0.3)/2=0.175  |
+| 128     | 5.14                | (0.21+0.35)/2=0.28  | 5.06             | (0.06+0.3)/2=0.18   |
+| 256     | 8.79                | (0.2+0.37)/2=0.285  | 8.71             | (0.08+0.31)/2=0.195 |
+
+Observations:
+
+* Gradient sync time almost stay the same when sequence length increases.
+* The gradient sync time decreased from 0.28 to 0.18, around 35% reduction! However, this is insignificant if the overall training is compute-bound.
 
 ## Appendix
 
@@ -515,55 +528,6 @@ Here's a systematic breakdown of the debugging process and hypotheses I tested:
        failure
 
   The debugging process took a methodical approach: algorithm → precision → implementation details → data organization, ultimately finding that the core mathematical implementation was sound but the batch handling was fundamentally flawed.
-```
-
-## DDP transformer benchmask result
-
-```
-[1] Warmup duration: 5.18s for 5 steps
-[0] Warmup duration: 5.22s for 5 steps
-[1] Gradient synced in 0.03s
-[0] Gradient synced in 0.06s
-[1] Training step 0 finished in 0.78s, gradient sync: 3.65%
-[0] Training step 0 finished in 0.79s, gradient sync: 8.00%
-[1] Gradient synced in 0.02s
-[0] Gradient synced in 0.06s
-[1] Training step 1 finished in 0.79s, gradient sync: 3.02%
-[0] Training step 1 finished in 0.79s, gradient sync: 7.93%
-[1] Gradient synced in 0.02s
-[0] Gradient synced in 0.06s
-[1] Training step 2 finished in 0.78s, gradient sync: 3.08%
-[0] Training step 2 finished in 0.78s, gradient sync: 7.96%
-[1] Gradient synced in 0.03s
-[0] Gradient synced in 0.06s
-[1] Training step 3 finished in 0.78s, gradient sync: 3.58%
-[0] Training step 3 finished in 0.78s, gradient sync: 7.95%
-[1] Gradient synced in 0.03s
-[0] Gradient synced in 0.06s
-[1] Training step 4 finished in 0.79s, gradient sync: 3.36%
-[0] Training step 4 finished in 0.79s, gradient sync: 7.93%
-[1] Gradient synced in 0.02s
-[0] Gradient synced in 0.06s
-[1] Training step 5 finished in 0.78s, gradient sync: 3.04%
-[0] Training step 5 finished in 0.78s, gradient sync: 7.95%
-[1] Gradient synced in 0.03s
-[0] Gradient synced in 0.06s
-[1] Training step 6 finished in 0.78s, gradient sync: 3.57%
-[0] Training step 6 finished in 0.79s, gradient sync: 7.93%
-[1] Gradient synced in 0.03s
-[0] Gradient synced in 0.06s
-[1] Training step 7 finished in 0.79s, gradient sync: 3.49%
-[0] Training step 7 finished in 0.79s, gradient sync: 7.93%
-[1] Gradient synced in 0.03s
-[0] Gradient synced in 0.06s
-[1] Training step 8 finished in 0.79s, gradient sync: 3.49%
-[0] Training step 8 finished in 0.79s, gradient sync: 7.92%
-[1] Gradient synced in 0.03s
-[0] Gradient synced in 0.06s
-[1] Training step 9 finished in 0.79s, gradient sync: 3.59%
-[1] Training duration: 7.87s for 10 steps, gradient sync: 3.38%
-[0] Training step 9 finished in 0.79s, gradient sync: 7.91%
-[0] Training duration: 7.87s for 10 steps, gradient sync: 7.93%
 ```
 
 
