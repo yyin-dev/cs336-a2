@@ -80,30 +80,23 @@ def naive_ddp(
         sync_in_batch = True
 
         if sync_in_batch:
+            all_grads = [param.grad for param in params if param.grad is not None]
 
-            all_grads_flattened = []
-            for param in params:
-                assert param.grad is not None
-                flattened_grad = torch.flatten(param.grad)
-                all_grads_flattened.append(flattened_grad)
-
-            all_grads = torch.concat(all_grads_flattened)
+            flattened = torch._utils._flatten_dense_tensors(all_grads)
             if dist.get_backend() == "gloo":
                 # Gloo doesn't support AVG
-                dist.all_reduce(tensor=all_grads, op=dist.ReduceOp.SUM, async_op=False)
-                all_grads /= world_size
+                dist.all_reduce(tensor=flattened, op=dist.ReduceOp.SUM, async_op=False)
+                flattened /= world_size
             else:
-                dist.all_reduce(tensor=all_grads, op=dist.ReduceOp.AVG, async_op=False)
+                dist.all_reduce(tensor=flattened, op=dist.ReduceOp.AVG, async_op=False)
 
-            start = 0
+            all_grads = torch._utils._unflatten_dense_tensors(flattened, all_grads)
+
+            idx = 0
             for param in params:
-                assert param.grad is not None
-                grad_numel = param.grad.numel()
-                grad = torch.reshape(
-                    all_grads[start : start + grad_numel], param.grad.shape
-                )
-                param.grad = grad
-                start += grad_numel
+                if param.grad is not None:
+                    param.grad = all_grads[idx]
+                    idx += 1
         else:
             for param in params:
                 if dist.get_backend() == "gloo":
