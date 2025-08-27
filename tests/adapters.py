@@ -10,11 +10,17 @@ import sys
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(parent_dir)
 
-from flashattention import (
-    FlashAttentionPytorch,
-    FlashAttentionPytorch,
-    FlashAttentionTriton,
-)
+# Triton is not available on CPU. Do this to run tests locally on CPU.
+try:
+    from cs336_systems.flashattention import (
+        FlashAttentionPytorch,
+        FlashAttentionPytorch,
+        FlashAttentionTriton,
+    )
+except ModuleNotFoundError:
+    pass
+
+from cs336_systems.ddp_individual_params import DDPIndividualParams
 
 
 def get_flashattention_autograd_function_pytorch() -> Type:
@@ -65,7 +71,7 @@ def get_ddp_individual_parameters(module: torch.nn.Module) -> torch.nn.Module:
         Instance of a DDP class.
     """
     # For example: return DDPIndividualParameters(module)
-    raise NotImplementedError
+    return DDPIndividualParams(module)
 
 
 def ddp_individual_parameters_on_after_backward(
@@ -82,7 +88,7 @@ def ddp_individual_parameters_on_after_backward(
             Optimizer being used with the DDP-wrapped model.
     """
     # For example: ddp_model.finish_gradient_synchronization()
-    raise NotImplementedError
+    ddp_model.finish_gradient_synchronization()
 
 
 def get_ddp_bucketed(module: torch.nn.Module, bucket_size_mb: float) -> torch.nn.Module:
