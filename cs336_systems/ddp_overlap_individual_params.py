@@ -15,7 +15,7 @@ torch.manual_seed(seed)
 # should detect the DDP setup like rank and world size.
 #
 # See the testcases for how the class is used.
-class DDPIndividualParams(nn.Module):
+class DDPOverlapIndividualParams(nn.Module):
     def __init__(self, module: torch.nn.Module):
         super().__init__()
         self.module = module

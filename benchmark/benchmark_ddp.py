@@ -14,7 +14,7 @@ from cs336_systems.nn_utils import cross_entropy
 from cs336_systems.optimizer import AdamW
 from cs336_systems.ddp_naive import DDPNaive
 from cs336_systems.ddp_batch import DDPBatch
-from cs336_systems.ddp_individual_params import DDPIndividualParams
+from cs336_systems.ddp_overlap_individual_params import DDPOverlapIndividualParams
 
 seed = 42
 random.seed(seed)
@@ -113,7 +113,7 @@ def run(
     elif mode == "batch":
         ddp_model = DDPBatch(model)
     elif mode == "overlap":
-        ddp_model = DDPIndividualParams(model)
+        ddp_model = DDPOverlapIndividualParams(model)
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
