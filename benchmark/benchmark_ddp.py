@@ -15,6 +15,7 @@ from cs336_systems.optimizer import AdamW
 from cs336_systems.ddp_naive import DDPNaive
 from cs336_systems.ddp_batch import DDPBatch
 from cs336_systems.ddp_overlap_individual_params import DDPOverlapIndividualParams
+from cs336_systems.ddp_overlap_bucketed import DDPOverlapBucketed
 
 seed = 42
 random.seed(seed)
@@ -64,6 +65,7 @@ def run(
     use_xl,
     time_after_backprop,
     mode,
+    bucket_size=None,
 ):
     print(f"[{rank}] starting up")
     device = setup(rank, world_size)
@@ -114,6 +116,11 @@ def run(
         ddp_model = DDPBatch(model)
     elif mode == "overlap":
         ddp_model = DDPOverlapIndividualParams(model)
+    elif mode == "overlap-bucketed":
+        if bucket_size is None:
+            raise ValueError("bucket_size must be provided for overlap-bucketed mode")
+
+        ddp_model = DDPOverlapBucketed(model, bucket_size)
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
@@ -218,12 +225,21 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--mode",
-        choices=["naive", "batch", "overlap"],
+        choices=["naive", "batch", "overlap", "overlap-bucketed"],
         default="naive",
-        help="DDP mode: naive (DDPNaive), batch (DDPBatch), overlap (DDPIndividualParams)",
+        help="DDP mode: naive (DDPNaive), batch (DDPBatch), overlap (DDPOverlapIndividualParams), overlap-bucketed (DDPOverlapBucketed)",
+    )
+    parser.add_argument(
+        "--bucket-size",
+        type=float,
+        help="Bucket size in MB for DDPOverlapBucketed mode",
     )
 
     args = parser.parse_args()
+
+    # Validate that bucket-size is provided when mode is overlap-bucketed
+    if args.mode == "overlap-bucketed" and args.bucket_size is None:
+        parser.error("--bucket-size is required when --mode is 'overlap-bucketed'")
 
     world_size = 2
     batch_size = 12
@@ -241,6 +257,7 @@ if __name__ == "__main__":
             args.use_xl,
             args.time_after_backprop,
             args.mode,
+            args.bucket_size,
         ),
         nprocs=world_size,
         join=True,
