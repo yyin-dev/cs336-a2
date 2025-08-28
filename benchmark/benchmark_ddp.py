@@ -147,7 +147,7 @@ def run(
 
     warmup_end = timeit.default_timer()
     warmup_duration = warmup_end - warmup_start
-    print(f"[{rank}] Warmup duration: {warmup_duration:.2f}s for {warmup_steps} steps")
+    print(f"[{rank}] Warmup duration: {warmup_duration:.3f}s for {warmup_steps} steps")
 
     # Benchmarking
     training_start = timeit.default_timer()
@@ -176,7 +176,7 @@ def run(
             sync_end = timeit.default_timer()
             sync_duration = sync_end - sync_start
             total_sync_duration += sync_duration
-            print(f"[{rank}] synced in {sync_duration:.2f}s")
+            print(f"[{rank}] synced in {sync_duration:.3f}s")
 
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
@@ -190,20 +190,20 @@ def run(
 
         if time_after_backprop:
             print(
-                f"[{rank}] Training step {s} finished in {duration:.2f}s, gradient sync: {sync_duration:.2f}s, {100*(sync_duration / duration):.2f}%"
+                f"[{rank}] Training step {s} finished in {duration:.3f}s, gradient sync: {sync_duration:.3f}s, {100*(sync_duration / duration):.3f}%"
             )
         else:
-            print(f"[{rank}] Training step {s} finished in {duration:.2f}s")
+            print(f"[{rank}] Training step {s} finished in {duration:.3f}s")
 
     training_end = timeit.default_timer()
     duration = training_end - training_start
 
     if time_after_backprop:
         print(
-            f"[{rank}] Training duration: {duration:.2f}s for {num_steps} steps, gradient sync: {total_sync_duration:.2f}s, {100*(total_sync_duration/ duration):.2f}%"
+            f"[{rank}] Training duration: {duration:.3f}s for {num_steps} steps, gradient sync: {total_sync_duration:.3f}s, {100*(total_sync_duration/ duration):.3f}%"
         )
     else:
-        print(f"[{rank}] Training duration: {duration:.2f}s for {num_steps} steps")
+        print(f"[{rank}] Training duration: {duration:.3f}s for {num_steps} steps")
 
     cleanup()
 

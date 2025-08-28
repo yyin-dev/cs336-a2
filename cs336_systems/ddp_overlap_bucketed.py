@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.distributed as dist
-from dataclasses import dataclass
 
 
 # Seed for deterministic training
@@ -9,15 +8,26 @@ seed = 42
 torch.manual_seed(seed)
 
 
-@dataclass
 class Bucket:
-    start: int  # index in model.parameters(), inclusive
-    end: int  # index in model.parameters(), exclusive
-    handle: dist.Work | None
-    flattened_grad: torch.Tensor | None
+    def __init__(self, start, end, num_params):
+        self.start = start  # index in model.parameters(), inclusive
+        self.end = end  # index in model.parameters(), exclusive
+        self.num_params = num_params
+
+        self.grad_cnt = 0
+        self.handle: dist.Work | None = None
+        self.flattened_grad: torch.Tensor | None = None
 
     def is_empty(self):
         return self.start == self.end
+
+    def reset(self):
+        self.grad_cnt = 0
+        self.handle = None
+        self.flattened_grad = None
+
+    def __repr__(self):
+        return str(self.__dict__)
 
 
 def print_params(params):
@@ -33,15 +43,15 @@ class DDPOverlapBucketed(nn.Module):
     def __init__(self, module: torch.nn.Module, bucket_size_mb: float):
         super().__init__()
         self.module = module
+        self.params = list(self.module.parameters())
         self.buckets: list[Bucket] = []
 
         # Find buckets
         # self.buckets is in reverse order w.r.t module.parmeters()
-        params = list(module.parameters())
-        current_bucket = Bucket(len(params), len(params), None, None)
+        current_bucket = Bucket(len(self.params), len(self.params), 0)
         current_bucket_size = 0
-        for i in range(len(params) - 1, -1, -1):
-            param = params[i]
+        for i in range(len(self.params) - 1, -1, -1):
+            param = self.params[i]
 
             if not param.requires_grad:
                 continue
@@ -55,38 +65,49 @@ class DDPOverlapBucketed(nn.Module):
             ):
                 current_bucket_size += grad_size
                 current_bucket.start = i
+                current_bucket.num_params += 1
             else:
                 prev_bucket = current_bucket
                 self.buckets.append(prev_bucket)
 
-                current_bucket = Bucket(i, prev_bucket.start, None, None)
+                current_bucket = Bucket(i, prev_bucket.start, 1)
                 current_bucket_size = grad_size
 
         if current_bucket_size > 0:
             self.buckets.append(current_bucket)
 
-        print_params(self.module.parameters())
-        print(f"[{dist.get_rank()}] buckets: {self.buckets}")
+        # print_params(self.module.parameters())
+        # print(f"[{dist.get_rank()}] buckets: {self.buckets}")
 
         # Set up hooks on backprop
         for bucket in self.buckets:
 
-            def on_grad(param: torch.Tensor, bucket: Bucket = bucket) -> None:
-                # It's important to pass in [bucket] as argument here. O/w we
-                # run into the classical Python closure trap: all lambdas share
-                # the same bucket (the last value after the loop ends)
-                params_in_bucket = params[bucket.start : bucket.end]
-                all_grads = [
-                    param.grad for param in params_in_bucket if param.grad is not None
-                ]
+            # It's important to pass in [bucket] as argument here. O/w we
+            # run into the classical Python closure trap: all lambdas share
+            # the same bucket (the last value after the loop ends)
+            def on_grad(_param: torch.Tensor, bucket: Bucket = bucket) -> None:
+                bucket.grad_cnt += 1
 
-                bucket.flattened_grad = torch._utils._flatten_dense_tensors(all_grads)
+                if bucket.grad_cnt < bucket.num_params:
+                    return
+
+                # bucket.grad_cnt == bucket.num_params
+                bucket_params = self.params[bucket.start : bucket.end]
+                grads = [p.grad for p in bucket_params if p.requires_grad]
+                bucket.flattened_grad = torch._utils._flatten_dense_tensors(grads)
                 bucket.handle = dist.all_reduce(
-                    tensor=bucket.flattened_grad, op=dist.ReduceOp.SUM, async_op=True
+                    tensor=bucket.flattened_grad,
+                    op=dist.ReduceOp.SUM,
+                    async_op=True,
                 )
 
-            start_param = params[bucket.start]
-            start_param.register_post_accumulate_grad_hook(on_grad)
+            for i in range(bucket.start, bucket.end):
+                param = self.params[i]
+
+                if not param.requires_grad:
+                    continue
+
+                param.register_post_accumulate_grad_hook(on_grad)
 
         # Broadcast initial weights from 0
         for param in module.parameters():
@@ -99,29 +120,24 @@ class DDPOverlapBucketed(nn.Module):
 
     def finish_gradient_synchronization(self):
         for bucket in self.buckets:
-            assert bucket.handle is not None
-            assert bucket.flattened_grad is not None
+            # assert bucket.handle is not None
+            # assert bucket.flattened_grad is not None
 
             bucket.handle.wait()
             bucket.flattened_grad /= dist.get_world_size()
 
-            params_in_bucket = list(self.module.parameters())[bucket.start : bucket.end]
-            all_grads = [
-                param.grad for param in params_in_bucket if param.grad is not None
-            ]
-
-            all_grads = torch._utils._unflatten_dense_tensors(
-                bucket.flattened_grad, all_grads
-            )
+            bucket_params = self.params[bucket.start : bucket.end]
+            grads = [param.grad for param in bucket_params if param.requires_grad]
+            grads = torch._utils._unflatten_dense_tensors(bucket.flattened_grad, grads)
 
             idx = 0
-            for param in params_in_bucket:
-                if param.grad is not None:
-                    param.grad = all_grads[idx]
+            for param in bucket_params:
+                if param.requires_grad:
+                    # assert param.grad is not None
+                    param.grad = grads[idx]
                     idx += 1
 
-            bucket.handle = None
-            bucket.flattened_grad = None
+            bucket.reset()
 
     # For my benchmarking purpose.
     def after_backward(self):
