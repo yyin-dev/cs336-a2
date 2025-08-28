@@ -444,7 +444,7 @@ The 5% ratio seems low for such a naive implementation but is also reasonable b/
 
 ## Problem (minimal_ddp_flat_benchmarking)
 
-Use `torch._utils._flatten_dense_tensors` and `torch._utils._unflatten_tensors`.   This requires extra memory (basically we double the amount of memory for gradient) and I this wouldn't fit into A100 with 40G, so I switched the large model. 
+Use `torch._utils._flatten_dense_tensors` and `torch._utils._unflatten_tensors`.   This requires extra memory (basically we double the amount of memory for gradient) and this wouldn't fit into A100 with 40G, so I switched to the large model. 
 
 | seq len | baseline total time | baseline sync time  | batch total time | batch sync time     |
 | ------- | ------------------- | ------------------- | ---------------- | ------------------- |
@@ -456,6 +456,15 @@ Observations:
 
 * Gradient sync time almost stay the same when sequence length increases.
 * The gradient sync time decreased from 0.28 to 0.18, around 35% reduction! However, this is insignificant if the overall training is compute-bound.
+
+## Problem (ddp_overlap_individual_parameters)
+
+With large model, 2 A100 GPUs with 40G RAM, sequence length of 64:
+
+* Baseline (sync individual params, no overlap): 3.44s, grad sync time: 0.40s, compute time 3.04s.
+* Batching (sync params in one go, no overlap): 3.35s, grad sync time: 0.30s, compute time 3.04s.
+* Overlap (sync individual params, overlap computation with communication): 3.26s. 
+  * Assume the same compute time as above, grad sync time: 3.26 - 3.04 =0.22s.
 
 ## Appendix
 

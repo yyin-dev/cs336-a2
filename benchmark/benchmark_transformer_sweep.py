@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Automated hyperparameter sweep for transformer benchmarking.
 
@@ -289,13 +288,17 @@ class BenchmarkSweep:
             # Print progress
             if result["status"] == "success":
                 nsys_info = " [nsys]" if result.get("nsys_profiled", False) else ""
-                memory_info = " [memory]" if result.get("memory_profiled", False) else ""
+                memory_info = (
+                    " [memory]" if result.get("memory_profiled", False) else ""
+                )
                 print(
                     f"✓ Mean: {result['mean_time']:.4f}s, Std: {result['std_time']:.4f}s{nsys_info}{memory_info}"
                 )
             else:
                 nsys_info = " [nsys]" if result.get("nsys_profiled", False) else ""
-                memory_info = " [memory]" if result.get("memory_profiled", False) else ""
+                memory_info = (
+                    " [memory]" if result.get("memory_profiled", False) else ""
+                )
                 print(f"✗ Failed: {result['error']}{nsys_info}{memory_info}")
 
     def save_results(self):
@@ -327,7 +330,8 @@ class BenchmarkSweep:
         table_columns = [
             col
             for col in successful_df.columns
-            if col not in ["status", "error", "nsys_output_file", "memory_snapshot_file"]
+            if col
+            not in ["status", "error", "nsys_output_file", "memory_snapshot_file"]
         ]
         table_df = successful_df[table_columns].copy()
 
