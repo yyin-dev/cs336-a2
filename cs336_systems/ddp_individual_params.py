@@ -8,6 +8,8 @@ seed = 42
 torch.manual_seed(seed)
 
 
+# Sync individual gradients. Overlap computation with communication.
+#
 # Don't spawn processes in this class. Assume torch.multiprocessing.spawn
 # has been called already. Each process will create a wrapper. This class
 # should detect the DDP setup like rank and world size.
@@ -53,3 +55,7 @@ class DDPIndividualParams(nn.Module):
             handle.wait()
 
         self.handles.clear()
+
+    # For my benchmarking purpose.
+    def after_backward(self):
+        self.finish_gradient_synchronization()
