@@ -158,7 +158,10 @@ def run(
     # Set up profiler if enabled
     if profile:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        trace_filename = f"profile_trace_{mode}_rank{rank}_{timestamp}.json"
+        if mode == "overlap-bucketed" and bucket_size is not None:
+            trace_filename = f"profile_trace_{mode}_{bucket_size}MB_rank{rank}_{timestamp}.json"
+        else:
+            trace_filename = f"profile_trace_{mode}_rank{rank}_{timestamp}.json"
 
         profiler_activities = [torch.profiler.ProfilerActivity.CPU]
         if torch.cuda.is_available():
