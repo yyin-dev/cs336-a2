@@ -92,9 +92,13 @@ class DDPOverlapBucketed(nn.Module):
                     return
 
                 # bucket.grad_cnt == bucket.num_params
-                bucket_params = self.params[bucket.start : bucket.end]
-                grads = [p.grad for p in bucket_params if p.requires_grad]
-                bucket.flattened_grad = torch._utils._flatten_dense_tensors(grads)
+                if bucket.start + 1 == bucket.end:
+                    bucket.flattened_grad = self.params[bucket.start].grad
+                else:
+                    bucket_params = self.params[bucket.start : bucket.end]
+                    grads = [p.grad for p in bucket_params if p.requires_grad]
+                    bucket.flattened_grad = torch._utils._flatten_dense_tensors(grads)
+
                 bucket.handle = dist.all_reduce(
                     tensor=bucket.flattened_grad,
                     op=dist.ReduceOp.SUM,
@@ -126,16 +130,21 @@ class DDPOverlapBucketed(nn.Module):
             bucket.handle.wait()
             bucket.flattened_grad /= dist.get_world_size()
 
-            bucket_params = self.params[bucket.start : bucket.end]
-            grads = [param.grad for param in bucket_params if param.requires_grad]
-            grads = torch._utils._unflatten_dense_tensors(bucket.flattened_grad, grads)
+            if bucket.start + 1 == bucket.end:
+                self.params[bucket.start].grad = bucket.flattened_grad
+            else:
+                bucket_params = self.params[bucket.start : bucket.end]
+                grads = [param.grad for param in bucket_params if param.requires_grad]
+                grads = torch._utils._unflatten_dense_tensors(
+                    bucket.flattened_grad, grads
+                )
 
-            idx = 0
-            for param in bucket_params:
-                if param.requires_grad:
-                    # assert param.grad is not None
-                    param.grad = grads[idx]
-                    idx += 1
+                idx = 0
+                for param in bucket_params:
+                    if param.requires_grad:
+                        # assert param.grad is not None
+                        param.grad = grads[idx]
+                        idx += 1
 
             bucket.reset()
 
