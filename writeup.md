@@ -466,6 +466,36 @@ With large model, 2 A100 GPUs with 40G RAM, sequence length of 64:
 * Overlap (sync individual params, overlap computation with communication): 3.26s. 
   * Assume the same compute time as above, grad sync time: 3.26 - 3.04 =0.22s.
 
+## Problem (ddp_bucketed_benchmark)
+
+(a) Expectation:
+
+* When bucket size is small, this is similar to syncing each parameter individually, so I expect results to be similar to overlap+non-bucketing.
+* When bucket size is very large (e.g. 1000MB), the results should be similar to batching (without bucketing).
+* There's a sweet spot for bucketing, where we get the best of both worlds: reduced communication calls and comm. & comp. overlapping. Like a U-curve.
+
+Benchmark results on 2 A100, 40GB RAM. GPT-Large, seq_len 64, batch size 12:
+
+| naive | overlap | 1MB  | 10MB | 100MB | 1000MB | 5000MB | 10000MB | batch |
+| ----- | ------- | ---- | ---- | ----- | ------ | ------ | ------- | ----- |
+| 3.44  | 3.26    | 3.29 | 3.31 | 3.28  | 3.30   | 3.37   | 3.38    | 3.35  |
+
+Benchmark results on 2 H100, 80GB RAM. GPT-XL, seq_len 128, batch size 12.
+
+| naive | overlap | 1MB   | 10MB  | 100MB | 1000MB | 5000MB | 10000MB | batch |
+| ----- | ------- | ----- | ----- | ----- | ------ | ------ | ------- | ----- |
+| 5.045 | 4.359   | 4.394 | 4.425 | 4.512 | 4.512  | 4.643  |         | 4.950 |
+
+Observation:
+
+* Sync individual params + overlap has the best performance. It has very similar performance as small batch but performs better, probably b/c of the overhead of bucketing implementation.
+* Large bucket sizes have similar performances as batching.
+* I didn't observe the  "sweet spot" for bucket size, probably due to
+  * overhead of bucketing implementation
+  * the high-speed interconnect between GPUs is really efficient, so it's better to start communicating as soon as the gradient is avaiable, which outweights bucketing efficiency.
+
+I imagine it's more likely to observe the U-curve if the GPU interconnect is less efficient (e.g. the network latency is higher, bandwith is lower).
+
 ## Appendix
 
 ## Debugging non-Triton FlashAttention
