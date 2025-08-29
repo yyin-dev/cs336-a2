@@ -9,6 +9,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 import random
 import timeit
+from datetime import datetime
 from cs336_systems.model import BasicsTransformerLM
 from cs336_systems.nn_utils import cross_entropy
 from cs336_systems.optimizer import AdamW
@@ -65,7 +66,8 @@ def run(
     use_xl,
     time_after_backprop,
     mode,
-    bucket_size=None,
+    bucket_size,
+    profile,
 ):
     print(f"[{rank}] starting up")
     device = setup(rank, world_size)
@@ -152,6 +154,27 @@ def run(
     # Benchmarking
     training_start = timeit.default_timer()
     total_sync_duration = 0
+
+    # Set up profiler if enabled
+    if profile:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        trace_filename = f"profile_trace_{mode}_rank{rank}_{timestamp}.json"
+
+        profiler_activities = [torch.profiler.ProfilerActivity.CPU]
+        if torch.cuda.is_available():
+            profiler_activities.append(torch.profiler.ProfilerActivity.CUDA)
+
+        profiler = torch.profiler.profile(
+            activities=profiler_activities,
+            record_shapes=False,  # Disable shape recording to reduce size
+            with_stack=False,  # Disable stack traces to reduce size
+            profile_memory=False,  # Disable memory profiling
+            with_flops=False,  # Disable FLOP counting
+            # Only profile a few steps to keep file size manageable
+        )
+        profiler.start()
+        print(f"[{rank}] Profiling enabled, will save trace to {trace_filename}")
+
     for s in range(num_steps):
         optimizer.zero_grad()
 
@@ -198,6 +221,13 @@ def run(
     training_end = timeit.default_timer()
     duration = training_end - training_start
 
+    # Stop profiler and export trace if enabled
+    if profile:
+        profiler.stop()
+        profiler.export_chrome_trace(trace_filename)
+        print(f"[{rank}] Profile trace saved to {trace_filename}")
+        print(f"[{rank}] View in Chrome at: chrome://tracing (open {trace_filename})")
+
     if time_after_backprop:
         print(
             f"[{rank}] Training duration: {duration:.3f}s for {num_steps} steps, gradient sync: {total_sync_duration:.3f}s, {100*(total_sync_duration/ duration):.3f}%"
@@ -234,6 +264,12 @@ if __name__ == "__main__":
         type=float,
         help="Bucket size in MB for DDPOverlapBucketed mode",
     )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        default=False,
+        help="Enable PyTorch profiling with chrome trace export",
+    )
 
     args = parser.parse_args()
 
@@ -258,6 +294,7 @@ if __name__ == "__main__":
             args.time_after_backprop,
             args.mode,
             args.bucket_size,
+            args.profile,
         ),
         nprocs=world_size,
         join=True,
