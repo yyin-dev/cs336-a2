@@ -170,7 +170,8 @@ def run(
             with_stack=False,  # Disable stack traces to reduce size
             profile_memory=False,  # Disable memory profiling
             with_flops=False,  # Disable FLOP counting
-            # Only profile a few steps to keep file size manageable
+            # Only profile a few steps to keep trace size manageable
+            schedule=torch.profiler.schedule(wait=0, warmup=0, active=3, repeat=1),
         )
         profiler.start()
         print(f"[{rank}] Profiling enabled, will save trace to {trace_filename}")
@@ -207,6 +208,10 @@ def run(
             ddp_model.after_backward()
 
         optimizer.step()
+
+        # Step profiler if enabled
+        if profile:
+            profiler.step()
 
         end_time = timeit.default_timer()
         duration = end_time - start_time
