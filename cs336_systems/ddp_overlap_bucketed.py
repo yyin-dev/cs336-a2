@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.distributed as dist
-import threading
+from concurrent.futures import ThreadPoolExecutor, Future
 
 
 # Seed for deterministic training
@@ -16,7 +16,7 @@ class Bucket:
         self.num_params = num_params
 
         self.grad_cnt = 0
-        self.sync_thread: threading.Thread | None = None
+        self.future: Future | None = None
         self.flattened_grad: torch.Tensor | None = None
 
     def is_empty(self):
@@ -45,6 +45,7 @@ class DDPOverlapBucketed(nn.Module):
         super().__init__()
         self.module = module
         self.params = list(self.module.parameters())
+        self.thread_pool = ThreadPoolExecutor(max_workers=2)
         self.buckets: list[Bucket] = []
 
         # Find buckets
@@ -106,11 +107,9 @@ class DDPOverlapBucketed(nn.Module):
                     async_op=True,
                 )
 
-                sync_thread = threading.Thread(
-                    target=self.background_gradient_sync_thread, args=(bucket, handle)
+                bucket.future = self.thread_pool.submit(
+                    self.background_gradient_sync_thread, bucket, handle
                 )
-                sync_thread.start()
-                bucket.sync_thread = sync_thread
 
             for i in range(bucket.start, bucket.end):
                 param = self.params[i]
@@ -152,8 +151,8 @@ class DDPOverlapBucketed(nn.Module):
 
     def finish_gradient_synchronization(self):
         for bucket in self.buckets:
-            if bucket.sync_thread is not None:
-                bucket.sync_thread.join()
+            if bucket.future is not None:
+                bucket.future.result()
 
             bucket.reset()
 
