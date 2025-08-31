@@ -480,21 +480,27 @@ Benchmark results on 2 A100, 40GB RAM. GPT-Large, seq_len 64, batch size 12:
 | ----- | ------- | ---- | ---- | ----- | ------ | ------ | ------- | ----- |
 | 3.44  | 3.26    | 3.29 | 3.31 | 3.28  | 3.30   | 3.37   | 3.38    | 3.35  |
 
-Benchmark results on 2 H100, 80GB RAM. GPT-XL, seq_len 128, batch size 12.
+Benchmark results on 2 H100, 80GB RAM. GPT-XL, seq_len 128, batch size 12. This is flawed b/c I didn't use AVG for NCCL. Fixed [here](https://github.com/yyin-dev/cs336-a2/commit/29ac8404e3306bf25a5d5cf880c8999cdf9ac2ce).
 
 | naive | overlap | 1MB   | 10MB  | 100MB | 1000MB | 5000MB | 10000MB | batch |
 | ----- | ------- | ----- | ----- | ----- | ------ | ------ | ------- | ----- |
 | 5.045 | 4.359   | 4.394 | 4.425 | 4.512 | 4.512  | 4.643  |         | 4.950 |
 
+After using AVG for NCCL
+
+| naive | overlap | 1MB   | 10MB  | 100MB | 1000MB | 5000MB | 10000MB | batch |
+| ----- | ------- | ----- | ----- | ----- | ------ | ------ | ------- | ----- |
+| 5.045 | 4.359   | 4.320 | 4.330 | 4.485 | 4.483  | 4.616  |         | 4.950 |
+
 Observation:
 
-* Sync individual params + overlap has the best performance. It has very similar performance as small batch but performs better, probably b/c of the overhead of bucketing implementation.
-* Large bucket sizes have similar performances as batching.
-* I didn't observe the  "sweet spot" for bucket size, probably due to
-  * overhead of bucketing implementation
-  * the high-speed interconnect between GPUs is really efficient, so it's better to start communicating as soon as the gradient is avaiable, which outweights bucketing efficiency.
+* Sync individual params + overlap has the best performance. It has very similar performance as small bucket (e.g. 1MB and 10MB).
+* Large bucket sizes (e.g. 5000MB) have similar performances as batching.
+* I didn't observe the  "sweet spot" for bucket size, probably because the high-speed interconnect between GPUs is really efficient, so it's better to start communicating as soon as the gradient is avaiable, which outweights bucketing efficiency.
 
 I imagine it's more likely to observe the U-curve if the GPU interconnect is less efficient (e.g. the network latency is higher, bandwith is lower).
+
+
 
 ## Appendix
 
