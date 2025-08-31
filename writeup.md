@@ -500,7 +500,26 @@ Observation:
 
 I imagine it's more likely to observe the U-curve if the GPU interconnect is less efficient (e.g. the network latency is higher, bandwith is lower).
 
+(b) The question defines the DDP overhead as "the amount of additional time spent after the backward pass", which can be interpreted as "the amount of additional time after we finish computing the gradient of the last bucket".
 
+Because we assume that the time to compute and communicate gradient is the same, we can overlap compute with communication perfectly. In other words, the (n-1)-th bucket's communication is perfectly overlapped with n-th bucket's computation. Only the last bucket's communication is exposed, $$o + \frac{s}{n_b * w}$$. To minize this, we want to maximize $$n_b$$, i.e. using very small bucket size.
+
+Another (more interesting) definition of the DDP overhead is the additional time spent, compared with no DDP. Let's assume:
+
+* Without DDP, the total time to compute gradient is $$T$$. Let $$T_{i}$$ be the compute time for the $$i$$-th bucket. 
+* The all-reduce overhead $$o$$ is not part the communication time. In other words, the time to compute gradient is $$\frac{s}{n_b w}$$, instead of $$o + \frac{s}{n_b w}$$.
+* Let $$C_i$$ be the communication time for the $$i$$-th bucket. In particular, $$C_i = T_i$$.
+
+Computing backward pass and communicating gradients are perfectly parallel. So 
+
+```
+|- T0 -|- T1 -| ... |- Tn-1 -|
+       |o|- C0 -|o|- C1 -| ... |o|- Cn-1 -|
+```
+
+Total time is $$T_0 + n_b o + \sum{C_i}$$, the overhead is $$T_0 + n_b o + \sum{C_i} - T = T_0 + n_b o = \frac{s}{n_b w} + n_b o$$.
+
+The first term $$\frac{s}{n_b w}$$ is the exposed last bucket's communication time. The second term $$n_b o$$ is the overhead associated with each bucket. The optimal bucket size that optimizes the overhead is $$\sqrt{\frac{s}{w o}}$$.
 
 ## Appendix
 
