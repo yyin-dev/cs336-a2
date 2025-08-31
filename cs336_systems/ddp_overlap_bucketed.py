@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.distributed as dist
-from concurrent.futures import ThreadPoolExecutor, Future
 
 
 # Seed for deterministic training
@@ -16,7 +15,7 @@ class Bucket:
         self.num_params = num_params
 
         self.grad_cnt = 0
-        self.future: Future | None = None
+        self.handle: dist.Work | None = None
         self.flattened_grad: torch.Tensor | None = None
 
     def is_empty(self):
@@ -24,7 +23,7 @@ class Bucket:
 
     def reset(self):
         self.grad_cnt = 0
-        self.sync_thread = None
+        self.handle = None
         self.flattened_grad = None
 
     def __repr__(self):
@@ -45,7 +44,6 @@ class DDPOverlapBucketed(nn.Module):
         super().__init__()
         self.module = module
         self.params = list(self.module.parameters())
-        self.thread_pool = ThreadPoolExecutor(max_workers=2)
         self.buckets: list[Bucket] = []
 
         # Find buckets
@@ -101,14 +99,10 @@ class DDPOverlapBucketed(nn.Module):
                     grads = [p.grad for p in bucket_params if p.requires_grad]
                     bucket.flattened_grad = torch._utils._flatten_dense_tensors(grads)
 
-                handle = dist.all_reduce(
+                bucket.handle = dist.all_reduce(
                     tensor=bucket.flattened_grad,
                     op=dist.ReduceOp.SUM,
                     async_op=True,
-                )
-
-                bucket.future = self.thread_pool.submit(
-                    self.background_gradient_sync_thread, bucket, handle
                 )
 
             for i in range(bucket.start, bucket.end):
@@ -125,34 +119,32 @@ class DDPOverlapBucketed(nn.Module):
 
         dist.barrier()
 
-    def background_gradient_sync_thread(self, bucket: Bucket, handle: dist.Work):
-        if bucket.flattened_grad is None:
-            raise ValueError("flattened_grad is None")
-
-        handle.wait()
-        bucket.flattened_grad /= dist.get_world_size()
-
-        if bucket.start + 1 == bucket.end:
-            self.params[bucket.start].grad = bucket.flattened_grad
-        else:
-            bucket_params = self.params[bucket.start : bucket.end]
-            grads = [param.grad for param in bucket_params if param.requires_grad]
-            grads = torch._utils._unflatten_dense_tensors(bucket.flattened_grad, grads)
-
-            idx = 0
-            for param in bucket_params:
-                if param.requires_grad:
-                    # assert param.grad is not None
-                    param.grad = grads[idx]
-                    idx += 1
-
     def forward(self, *inputs, **kwargs):
         return self.module(*inputs, **kwargs)
 
     def finish_gradient_synchronization(self):
         for bucket in self.buckets:
-            if bucket.future is not None:
-                bucket.future.result()
+            # assert bucket.handle is not None
+            # assert bucket.flattened_grad is not None
+
+            bucket.handle.wait()
+            bucket.flattened_grad /= dist.get_world_size()
+
+            if bucket.start + 1 == bucket.end:
+                self.params[bucket.start].grad = bucket.flattened_grad
+            else:
+                bucket_params = self.params[bucket.start : bucket.end]
+                grads = [param.grad for param in bucket_params if param.requires_grad]
+                grads = torch._utils._unflatten_dense_tensors(
+                    bucket.flattened_grad, grads
+                )
+
+                idx = 0
+                for param in bucket_params:
+                    if param.requires_grad:
+                        # assert param.grad is not None
+                        param.grad = grads[idx]
+                        idx += 1
 
             bucket.reset()
 
