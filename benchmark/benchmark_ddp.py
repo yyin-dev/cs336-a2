@@ -71,6 +71,7 @@ def run(
 ):
     print(f"[{rank}] starting up")
     device = setup(rank, world_size)
+    print(f"Backend: {dist.get_backend()}")
 
     # Prepare macrobatch
     print(f"[{rank}] preparing data")
@@ -159,7 +160,9 @@ def run(
     if profile:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         if mode == "overlap-bucketed" and bucket_size is not None:
-            trace_filename = f"profile_trace_{mode}_{bucket_size}MB_rank{rank}_{timestamp}.json"
+            trace_filename = (
+                f"profile_trace_{mode}_{bucket_size}MB_rank{rank}_{timestamp}.json"
+            )
         else:
             trace_filename = f"profile_trace_{mode}_rank{rank}_{timestamp}.json"
 

@@ -99,11 +99,18 @@ class DDPOverlapBucketed(nn.Module):
                     grads = [p.grad for p in bucket_params if p.requires_grad]
                     bucket.flattened_grad = torch._utils._flatten_dense_tensors(grads)
 
-                bucket.handle = dist.all_reduce(
-                    tensor=bucket.flattened_grad,
-                    op=dist.ReduceOp.SUM,
-                    async_op=True,
-                )
+                if dist.get_backend() == "gloo":
+                    bucket.handle = dist.all_reduce(
+                        tensor=bucket.flattened_grad,
+                        op=dist.ReduceOp.SUM,
+                        async_op=True,
+                    )
+                else:
+                    bucket.handle = dist.all_reduce(
+                        tensor=bucket.flattened_grad,
+                        op=dist.ReduceOp.AVG,
+                        async_op=True,
+                    )
 
             for i in range(bucket.start, bucket.end):
                 param = self.params[i]
@@ -128,7 +135,9 @@ class DDPOverlapBucketed(nn.Module):
             # assert bucket.flattened_grad is not None
 
             bucket.handle.wait()
-            bucket.flattened_grad /= dist.get_world_size()
+
+            if dist.get_backend() == "gloo":
+                bucket.flattened_grad /= dist.get_world_size()
 
             if bucket.start + 1 == bucket.end:
                 self.params[bucket.start].grad = bucket.flattened_grad
