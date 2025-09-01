@@ -22,6 +22,7 @@ except ModuleNotFoundError:
 
 from cs336_systems.ddp_overlap_individual_params import DDPOverlapIndividualParams
 from cs336_systems.ddp_overlap_bucketed import DDPOverlapBucketed
+from cs336_systems.optimizer_state_sharding import OptimizerStateSharding
 
 
 def get_flashattention_autograd_function_pytorch() -> Type:
@@ -163,4 +164,4 @@ def get_sharded_optimizer(
     Returns:
         Instance of sharded optimizer.
     """
-    raise NotImplementedError
+    return OptimizerStateSharding(params, optimizer_cls, **kwargs)
