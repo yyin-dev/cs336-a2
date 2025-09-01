@@ -97,7 +97,7 @@ Matmul kernels sum to around 68%. So fraction of time spent on matmul is lower.
 
 Forward is dominated by matmul. 
 
-Backward pass consists of more element-wise ops. Even though gradients of matmuls are still matmuls, gradients of activations (e.g. ReLU, GeLU, softmax) are element-wise, gradients of residual connections are element-wise adds, etc.
+Backward pass consists of more element-wise ops. Even though gradients of matmuls are still matmuls, gradients of activations (e.g. ReLU, GeLU, softmax) are element-wise, gradients of residual connections are element-wise adds, etc. For certain activations, even though element-wise ops exist in the forward pass, the backward pass requires more element-wise ops.
 
 Optimizer step usually involves very little matmuls and is dominated by element-wise ops. Take Adam for example, Given parameter θ, gradient g, moments m, v: 
 
@@ -315,7 +315,7 @@ Transformer benchmark (forward + backward + optimizer)
 |    2560 | 10240 |         32 |        32 |            256 |             0.724500 |            0.680600 |                                        0.303200 |
 |    2560 | 10240 |         32 |        32 |            512 |             1.246300 |            1.143300 |                                        0.393300 |
 
-We observed similar superlinear scaling. For example, for d_model = 2560, when context_length increases from 128 to 256 (2x), the time increases by ~1.122x; when context_length increases from 128 to 512 (4x), the time increases by 1.455x. 1.122^2 =1.259 < 1.455x. 
+We observed similar superlinear scaling. For example, for d_model = 2560, when context_length increases from 128 to 256 (2x), the time increases by ~1.122x; when context_length increases from 128 to 512 (4x), the time increases by 1.455x, while 1.122^2 =1.259 < 1.455x. 
 
 ## Problem (flash_forward)
 
