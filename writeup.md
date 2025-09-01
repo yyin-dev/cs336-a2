@@ -571,6 +571,49 @@ Tricks:
 * Activation checkpointing / recomputation: trade extra FLOPs for activation memory saving. 
 * Pipeline parallel: better overlap compute with communication.
 
+## problem (optimizer_state_sharding_accounting)
+
+(a) See `benchmark_opt_sharding_memory.py`. 
+
+Without optimizer state sharding:
+
+* Peak memory after model initialization: 8297.44 MB
+* Peak memory directly before optimizer step: 16801.33 MB
+  * Activation size is roughly 16801.33 - 8297.44 = 8503.89 MB. 
+* Peak memory directly after the optimizer step: 33365.27 MB
+  * Optimizer state is roughly 33365.27  - 16801.33 =16,563.94 MB, roughly 2x model size. 
+
+With optmizer state sharding:
+
+* Peak memory after model initialization: 8297.44 MB
+* Peak memory directly before optimizer step: 16800.47 MB
+  * Activation size is roughly 16800.47 - 8297.44 =8,503.03 MB.
+* Peak memory directly after the optimizer step: 
+  * Worker 0: 24448.35 MB. Worker 1: 25648.19 MB MB. Params are not perfectly divided by size in my implementation. 
+  * Optimizer state is roughly (25648.19+ 24448.35)/2 - 16800.47=8,247.8  MB, roughly 1x model size. 	
+
+With optimizer state sharding, the peak memory decreased by around 8867MB before running the optimizer step. This matches every expectation: with world size of 2, each model gets half of the AdamW optimizer state, which is 2x model size. Thus, the memory saving of each worker is roughly 1x model size. 
+
+(b) See `benchmark_opt_sharding_comparison.py`. Sequence length 256, warmup steps = 3, timing steps = 5.
+
+```
+Metric                         Regular         Sharded         Difference
+--------------------------------------------------------------------------------
+Total time per step (s)        0.6745          0.7297          +8.2%
+Forward pass time (s)          0.1833          0.1838          +0.3%
+Backward pass time (s)         0.3785          0.3786          +0.0%
+Optimizer step time (s)        0.1127          0.1672          +48.4%
+Throughput (steps/sec)         1.48            1.37            -7.4%
+```
+
+The forward  and backward performance is not affected. The optimizer step is almost 50% slower! Each iteration is around 8% slower. 
+
+(c) ZeRO stage 1 shards both optimizer state and parameters. Each worker process is responsible for storing and updating its corresponding portion of the parameters and optimizer states. At the end of the training step, an all-gather is performed to ensure each worker has the full parameters (to run forward pass). 
+
+Our approach only shards optimizer state but not parameters. Each process still stores the full parameters, and a portion of the optimizer state. 
+
+
+
 
 
 ## Appendix
