@@ -11,35 +11,45 @@ class OptimizerStateSharding(torch.optim.Optimizer):
         self.optim: torch.optim.Optimizer | None = None
 
         # super()'s constructor calls add_param_group
-        self.params = list(params)
-        super().__init__(self.params, defaults=kwargs)
-
-        # determine the shard
-        # TODO: take param size into account
-        W = dist.get_world_size()
-
-        shard_size = (len(self.params) + W - 1) // W
-        rank = dist.get_rank()
-        shard_start = rank * shard_size
-        shard_end = (rank + 1) * shard_size
-        shard_params = self.params[shard_start:shard_end]
+        super().__init__(params, defaults=kwargs)
 
     def step(self, closure=None, **kwargs):  # type: ignore
         assert self.optim is not None
         self.optim.step(closure, **kwargs)
 
         W = dist.get_world_size()
-        for i in range(W):
-            shard_size = (len(self.params) + W - 1) // W
-            shard_start = i * shard_size
-            shard_end = (i + 1) * shard_size
-            dist.broadcast_object_list(self.params[shard_start:shard_end], src=i)
+
+        cnt = 0
+        for group in self.param_groups:
+            for p in group["params"]:
+                if p.requires_grad:
+                    src = cnt % W
+                    dist.broadcast(p.data, src, async_op=False)
+
+                cnt += 1
 
     def add_param_group(self, param_group: dict[str, Any]):
-        print(f"[{dist.get_rank()}] add param group")
-        self.param_groups.append(param_group)
+        # Assumes that param_group["params"] is a list of params
+        assert param_group["params"] is not None
+        assert isinstance(param_group["params"], list)
+
+        # Find the shard within [param_group]
+        num_existing_params = sum([len(g["params"]) for g in self.param_groups])
+        param_group_to_add = {"params": []}
+        for idx, param in enumerate(param_group["params"]):
+            global_idx = idx + num_existing_params
+            if global_idx % dist.get_world_size() == dist.get_rank():
+                param_group_to_add["params"].append(param)
+
+        if len(param_group_to_add["params"]) == 0:
+            return
 
         if not self.optim:
-            self.optim = self.optimizer_cls([param_group], **self.defaults)
+            self.optim = self.optimizer_cls([param_group_to_add], **self.defaults)
         else:
-            self.optim.add_param_group(param_group)
+            self.optim.add_param_group(param_group_to_add)
+
+        # Must add param_group, instead of param_groups_to_add, to self.params_group s.t.
+        # 1. optimizer.zero_grad() works
+        # 2. we hold all parameters for broadcast in step().
+        self.param_groups.append(param_group)
