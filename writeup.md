@@ -521,6 +521,58 @@ Total time is $$T_0 + n_b o + \sum{C_i}$$, the overhead is $$T_0 + n_b o + \sum{
 
 The first term $$\frac{s}{n_b w}$$ is the exposed last bucket's communication time. The second term $$n_b o$$ is the overhead associated with each bucket. The optimal bucket size that optimizes the overhead is $$\sqrt{\frac{s}{w o}}$$.
 
+## problem (communication_accounting)
+
+(a)  For each parameter, we need
+
+* 4 bytes for master weight
+* 8 bytes for optimizer states (1st-order and 2nd-order momentum, each is 4 bytes)
+* 4 bytes for accumulated gradient during SGD
+
+So 16 bytes per parameter. The number of parameters is `num_blocks * (2DF) = 126 * 2 * 16384 * 53248 = 219848638464`, which is roughly 219B. That's around 3.517 TB of memory.
+
+In the backward pass, we need **activations** and **gradients** in BF16. This halves the memory usage for the backward pass. Note: the activation size depends on the batch size, which is not given, so it's kinda hard to compute an exact number.
+
+(b) Let `BS` denote `batch_size x seq_len`. Because we assume each block contains two linear layers, like $$y = B(Ax)$$, we know $$\frac{dy}{dB} = Ax$$ and $$\frac{dy}{dA} = Bx$$. So we need to store $$Ax$$ in the forward pass ($$Bx$$ was not computed directly in the forward pass). So for each layer, the activation size is $$B S F$$, each taking 2 bytes (BF16). The total activation size is $$2 BSF num\_blocks = 4128768 BS $$ bytes.
+
+The per-device memory consists of:
+
+* master weights, accumulated gradients, optimizer states (FP32): $$\frac{2 num\_blocks DF}{N_{FSDP}} * 4$$
+* gradients (BF16):  $$\frac{2 num\_blocks DF}{N_{FSDP}} * 2$$
+* half activation is sharded (BF16): $$\frac{num\_blocks BSF}{N_{FSDP}} * 2$$.
+* the other half activation is on-device (BF16): $$num\_blocks BSF* 2$$.
+
+Putting everything (in GiB) together — use the GiB constant for activations:
+$$
+M_{\text{per-device}}(N,BS)=\frac{3276}{N}\;+\;BS\cdot(0.00384521484375)\cdot\frac{1}{2}\left(1+\frac{1}{N}\right)\ \text{GiB}.
+$$
+and solve $$M_{\text{per-device}} < 95$$, we get
+$$
+N>\frac{3276 + BS\cdot 0.001922607421875}{95 - BS\cdot 0.001922607421875},
+$$
+For small $$BS$$, N is roughly 35 devices (growing slowly with BS).
+
+(c) Based on the formula given the in the Scaling Book
+$$
+\frac{B}{N} > \frac{\alpha^2}{M_X M_Y F}
+$$
+where $$\alpha = \frac{C}{W_{ici}}$$. Plugging in numbers, the per-device batch size is at least 61.32, so probably 64.
+
+(d) We want a large-enough batch size to saturate the hardware and become compute-bound. However, once compute-bound, increasing batch size doesn't give better utilization and can hurt training (e.g. SGD gets fewer updates).  Thus, we care about the minimal batch size that keeps us compute-bound. 
+
+Strategies to reduce overall batch size:
+
+* Reduce per-step memory pressure: we must keep adding more devices until parameters, gradients, optimizer states, and activations fit on devices. If we can reduce memory pressure, we need fewer devices (smaller N), and a small global batch size (microbatch size x N).
+* Overlap communication with computation. 
+
+Tricks:
+
+* Mixed precision + compressed optimizer state: reduce memory pressure.
+* Activation checkpointing / recomputation: trade extra FLOPs for activation memory saving. 
+* Pipeline parallel: better overlap compute with communication.
+
+
+
 ## Appendix
 
 ## Debugging non-Triton FlashAttention
