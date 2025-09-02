@@ -1,3 +1,5 @@
+Problems: https://github.com/stanford-cs336/assignment2-systems/blob/main/cs336_assignment2_systems.pdf
+
 ## problem(benchmarking_script)
 
 (a) `benchmark.py` and `benchmark_sweep.py`. See results in `data/e2e_benchmark`. Benchmarked on A100 with 40G RAM.
